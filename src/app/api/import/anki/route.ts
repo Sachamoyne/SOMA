@@ -91,13 +91,19 @@ function getIntervalDays(ivl: number, type: number): number {
 // - -1 = suspended
 // - -2 = user buried
 // - -3 = scheduler buried
-function getCardStateFromQueue(queue: number): "new" | "learning" | "review" {
+function getCardStateFromQueue(
+  queue: number
+): "new" | "learning" | "review" | "suspended" {
+  // Suspended/buried cards: MUST be mapped to 'suspended' state
+  // These cards should NOT appear in study sessions or statistics
+  if (queue < 0) return "suspended";
+
   if (queue === 0) return "new";
   if (queue === 1 || queue === 3) return "learning"; // 1=learning, 3=day learning
   if (queue === 2) return "review";
-  // Suspended/buried cards: treat as review (they were reviewed before)
-  // We could also add a "suspended" state in Synapse, but for now map to review
-  return "review";
+
+  // Fallback: should never happen, but default to 'new'
+  return "new";
 }
 
 // DEPRECATED: Do not use - type is historical, not current state
@@ -498,8 +504,9 @@ export async function POST(request: NextRequest) {
           // Track cards per deck
           cardsPerDeck.set(synapseDeckId, (cardsPerDeck.get(synapseDeckId) || 0) + 1);
           // Track cards by state (only non-suspended for stats comparison)
-          if (!isSuspended) {
-            cardsByState[state]++;
+          if (!isSuspended && state !== "suspended") {
+            // TypeScript: state is now guaranteed to be "new" | "learning" | "review"
+            cardsByState[state as "new" | "learning" | "review"]++;
           } else {
             suspendedCount++;
           }

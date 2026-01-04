@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { listDecks, createDeck, getDueCount, getDeckCardCounts, getTotalCardCount } from "@/store/decks";
+import { listDecks, createDeck, getAllDeckCounts } from "@/store/decks";
 import { ImportDialog } from "@/components/ImportDialog";
 import type { Deck } from "@/lib/db";
 import { BookOpen } from "lucide-react";
@@ -37,38 +37,14 @@ export default function DecksPage() {
       console.log('✅ Loaded', loadedDecks.length, 'decks:', loadedDecks);
       setDecks(loadedDecks);
 
-      const counts: Record<string, number> = {};
-      const due: Record<string, number> = {};
-      const learning: Record<string, { new: number; learning: number; review: number }> = {};
+      // OPTIMIZED: Get all counts in a single batch query instead of N+1 queries
+      // This reduces from 3*N database calls to just 2 calls (cards + decks)
+      const deckIds = loadedDecks.map(d => d.id);
+      const { cardCounts, dueCounts, learningCounts } = await getAllDeckCounts(deckIds);
 
-      // Load all counts in parallel to avoid N+1
-      // Load counts for all decks (including sub-decks)
-      // Note: All count functions (getTotalCardCount, getDueCount, getDeckCardCounts)
-      // automatically aggregate counts from all descendant decks
-      const countPromises = loadedDecks.map(async (deck) => {
-        const [cardCount, dueCount, learningCount] = await Promise.all([
-          getTotalCardCount(deck.id),
-          getDueCount(deck.id),
-          getDeckCardCounts(deck.id),
-        ]);
-        return {
-          deckId: deck.id,
-          cardCount,
-          dueCount,
-          learningCount,
-        };
-      });
-
-      const countResults = await Promise.all(countPromises);
-      for (const result of countResults) {
-        counts[result.deckId] = result.cardCount;
-        due[result.deckId] = result.dueCount;
-        learning[result.deckId] = result.learningCount;
-      }
-
-      setCardCounts(counts);
-      setDueCounts(due);
-      setLearningCounts(learning);
+      setCardCounts(cardCounts);
+      setDueCounts(dueCounts);
+      setLearningCounts(learningCounts);
       console.log('✅ loadDecks COMPLETE');
     } catch (error) {
       console.error("❌ Error loading decks:", error);

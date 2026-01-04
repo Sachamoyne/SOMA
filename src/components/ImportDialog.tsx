@@ -167,7 +167,10 @@ export function ImportDialog({
       // Wait a bit to show success message
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      onSuccess?.();
+      // CRITICAL: Await the onSuccess callback to ensure the parent component
+      // has time to refresh its data before the dialog closes
+      await onSuccess?.();
+
       onOpenChange(false);
       reset();
     } catch (error) {

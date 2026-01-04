@@ -86,7 +86,8 @@ export function DeckTree({
   onDeckDeleted,
 }: DeckTreeProps) {
   const router = useRouter();
-  const [expanded, setExpanded] = useState(true);
+  // Default to collapsed (false) for cleaner initial UI, matching Anki's behavior
+  const [expanded, setExpanded] = useState(false);
   const [subDeckDialogOpen, setSubDeckDialogOpen] = useState(false);
   const [subDeckName, setSubDeckName] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);

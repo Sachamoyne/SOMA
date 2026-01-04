@@ -524,6 +524,95 @@ export async function getDeckCardCounts(deckId: string): Promise<{
   return { new: newCount, learning: learningCount, review: reviewCount };
 }
 
+/**
+ * OPTIMIZED: Get all deck counts in a single batch query
+ * This replaces the N+1 query pattern of calling getTotalCardCount, getDueCount,
+ * and getDeckCardCounts for each deck individually.
+ *
+ * Performance improvement: O(n) -> O(1) database queries
+ */
+export async function getAllDeckCounts(deckIds: string[]): Promise<{
+  cardCounts: Record<string, number>;
+  dueCounts: Record<string, number>;
+  learningCounts: Record<string, { new: number; learning: number; review: number }>;
+}> {
+  const supabase = createClient();
+  const userId = await getCurrentUserId();
+  const now = new Date().toISOString();
+
+  // Single query to fetch all cards for all decks
+  const { data: allCards, error } = await supabase
+    .from("cards")
+    .select("deck_id, state, due_at, suspended")
+    .eq("user_id", userId);
+
+  if (error) throw error;
+
+  // Build a map of deck -> all descendant deck IDs (including self)
+  const { data: allDecks } = await supabase
+    .from("decks")
+    .select("id, parent_deck_id")
+    .eq("user_id", userId);
+
+  const deckHierarchy = new Map<string, string[]>();
+
+  // Helper to get all descendants recursively
+  const getAllDescendants = (deckId: string): string[] => {
+    if (deckHierarchy.has(deckId)) {
+      return deckHierarchy.get(deckId)!;
+    }
+
+    const children = (allDecks || []).filter(d => d.parent_deck_id === deckId);
+    const descendants = [deckId]; // Include self
+
+    for (const child of children) {
+      descendants.push(...getAllDescendants(child.id));
+    }
+
+    deckHierarchy.set(deckId, descendants);
+    return descendants;
+  };
+
+  // Pre-compute descendants for all requested decks
+  for (const deckId of deckIds) {
+    getAllDescendants(deckId);
+  }
+
+  // Initialize result objects
+  const cardCounts: Record<string, number> = {};
+  const dueCounts: Record<string, number> = {};
+  const learningCounts: Record<string, { new: number; learning: number; review: number }> = {};
+
+  // Calculate counts for each deck
+  for (const deckId of deckIds) {
+    const descendantIds = deckHierarchy.get(deckId) || [deckId];
+
+    // Filter cards belonging to this deck or its descendants
+    const deckCards = (allCards || []).filter(
+      card => descendantIds.includes(card.deck_id) && !card.suspended
+    );
+
+    // Total card count
+    cardCounts[deckId] = deckCards.length;
+
+    // Due count
+    dueCounts[deckId] = deckCards.filter(card => card.due_at <= now).length;
+
+    // Learning counts (new, learning, review) - only due cards
+    const counts = { new: 0, learning: 0, review: 0 };
+    for (const card of deckCards) {
+      if (card.due_at <= now) {
+        if (card.state === "new") counts.new++;
+        else if (card.state === "learning") counts.learning++;
+        else if (card.state === "review") counts.review++;
+      }
+    }
+    learningCounts[deckId] = counts;
+  }
+
+  return { cardCounts, dueCounts, learningCounts };
+}
+
 export async function reviewCard(
   cardId: string,
   rating: "again" | "hard" | "good" | "easy",

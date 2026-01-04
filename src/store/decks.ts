@@ -18,6 +18,7 @@ export {
   getDueCount,
   getTotalCardCount,
   getDeckCardCounts,
+  getAllDeckCounts,
   reviewCard,
   getCardsStudiedToday,
   getCurrentStreak,
