@@ -13,9 +13,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { createDeck, createCard, getDueCount, deleteDeck, getDeckCardCounts } from "@/store/decks";
+import { createDeck, createCard, getDueCount, getDeckCardCounts } from "@/store/decks";
 import type { Deck } from "@/lib/db";
-import { ChevronRight, ChevronDown, BookOpen, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, ChevronDown, BookOpen, Plus } from "lucide-react";
+import { DeckSettingsMenu } from "@/components/DeckSettingsMenu";
 
 // Helper: Get all descendant deck IDs (recursive)
 function getAllDescendants(deckId: string, allDecks: Deck[]): string[] {
@@ -90,7 +91,6 @@ export function DeckTree({
   const [expanded, setExpanded] = useState(false);
   const [subDeckDialogOpen, setSubDeckDialogOpen] = useState(false);
   const [subDeckName, setSubDeckName] = useState("");
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [addCardDialogOpen, setAddCardDialogOpen] = useState(false);
   const [cardFront, setCardFront] = useState("");
   const [cardBack, setCardBack] = useState("");
@@ -98,7 +98,7 @@ export function DeckTree({
   // Find children and parent
   const children = allDecks.filter((d) => d.parent_deck_id === deck.id);
   const hasChildren = children.length > 0;
-  const indent = level * 24; // 24px per level
+  const indent = level * 20; // 20px per level for clear hierarchy
   const parentDeck = deck.parent_deck_id
     ? allDecks.find((d) => d.id === deck.parent_deck_id)
     : null;
@@ -116,16 +116,6 @@ export function DeckTree({
     }
   };
 
-  const handleDeleteDeck = async () => {
-    try {
-      await deleteDeck(deck.id);
-      setDeleteDialogOpen(false);
-      onDeckDeleted();
-    } catch (error) {
-      console.error("Error deleting deck:", error);
-    }
-  };
-
   const handleDeckClick = () => {
     router.push(`/study/${deck.id}`);
   };
@@ -138,11 +128,6 @@ export function DeckTree({
   const handleAddSubDeckClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setSubDeckDialogOpen(true);
-  };
-
-  const handleDeleteClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setDeleteDialogOpen(true);
   };
 
   const handleAddCardClick = (e: React.MouseEvent) => {
@@ -167,8 +152,8 @@ export function DeckTree({
   return (
     <div>
       <div
-        className="flex items-center gap-4 px-4 py-4 border-b last:border-b-0 hover:bg-gray-50 transition-colors cursor-pointer group"
-        style={{ paddingLeft: `${16 + indent}px` }}
+        className="flex items-center justify-between px-3 py-2 border-b last:border-b-0 hover:bg-gray-50 transition-colors cursor-pointer group"
+        style={{ paddingLeft: `${12 + indent}px` }}
         onClick={handleDeckClick}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -180,111 +165,98 @@ export function DeckTree({
         tabIndex={0}
         aria-label={`Study deck: ${deck.name}`}
       >
-        {/* Left area - Clickable */}
-        <div className="flex items-center gap-3 flex-1 min-w-0">
+        {/* Left: Chevron + Icon + Name */}
+        <div className="flex items-center gap-2 flex-1 min-w-0">
           {hasChildren ? (
             <button
               onClick={handleExpandClick}
-              className="p-0.5 hover:bg-gray-200 rounded transition-colors"
+              className="p-0.5 hover:bg-gray-200 rounded transition-colors flex-shrink-0"
               aria-label={expanded ? "Collapse" : "Expand"}
             >
               {expanded ? (
-                <ChevronDown className="h-4 w-4 text-gray-600" />
+                <ChevronDown className="h-3.5 w-3.5 text-gray-600" />
               ) : (
-                <ChevronRight className="h-4 w-4 text-gray-600" />
+                <ChevronRight className="h-3.5 w-3.5 text-gray-600" />
               )}
             </button>
           ) : (
-            <div className="w-5" />
+            <div className="w-4" />
           )}
-          <BookOpen className="h-5 w-5 text-gray-500 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <div className="font-semibold text-gray-900 truncate mb-1.5">
-              {deck.name}
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              {(() => {
-                // Backend already provides aggregated counts (including all descendant decks)
-                // so we can use them directly without client-side recursion
-                const counts = learningCounts[deck.id] || { new: 0, learning: 0, review: 0 };
-                const totalCards = cardCounts[deck.id] || 0;
-
-                if (learningCounts[deck.id] !== undefined) {
-                  return (
-                    <>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full border ${
-                          counts.new > 0
-                            ? "bg-blue-50 text-blue-700 border-blue-200"
-                            : "bg-gray-50 text-gray-400 border-gray-200"
-                        }`}
-                      >
-                        New {counts.new}
-                      </span>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full border ${
-                          counts.learning > 0
-                            ? "bg-orange-50 text-orange-700 border-orange-200"
-                            : "bg-gray-50 text-gray-400 border-gray-200"
-                        }`}
-                      >
-                        Learning {counts.learning}
-                      </span>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full border ${
-                          counts.review > 0
-                            ? "bg-green-50 text-green-700 border-green-200"
-                            : "bg-gray-50 text-gray-400 border-gray-200"
-                        }`}
-                      >
-                        Review {counts.review}
-                      </span>
-                      <span className="text-xs px-2 py-0.5 rounded-full border bg-gray-50 text-gray-600 border-gray-200">
-                        Total {totalCards}
-                      </span>
-                    </>
-                  );
-                }
-                return (
-                  <span className="text-xs text-gray-500">
-                    {totalCards} cards
-                  </span>
-                );
-              })()}
-            </div>
-          </div>
-          <ChevronRight className="h-4 w-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+          <BookOpen className="h-4 w-4 text-gray-500 flex-shrink-0" />
+          <span className="font-medium text-sm text-gray-900 truncate">
+            {deck.name}
+          </span>
         </div>
 
-        {/* Right area - Actions (not clickable for navigation) */}
-        <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleAddCardClick}
-            aria-label="Add card"
-            className="text-xs hover:bg-gray-200"
-          >
-            Add cards
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleAddSubDeckClick}
-            aria-label="Add sub-deck"
-            className="hover:bg-gray-200"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleDeleteClick}
-            aria-label="Delete deck"
-            className="hover:bg-gray-200 hover:text-red-600"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+        {/* Right: Counts + Actions */}
+        <div className="flex items-center gap-3 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+          {/* Counts - Fixed width grid for strict alignment */}
+          {(() => {
+            const counts = learningCounts[deck.id] || { new: 0, learning: 0, review: 0 };
+            const totalCards = cardCounts[deck.id] || 0;
+
+            if (learningCounts[deck.id] !== undefined) {
+              return (
+                <div className="grid grid-cols-4 w-40 gap-1">
+                  <span
+                    className={`text-xs font-medium text-right ${
+                      counts.new > 0
+                        ? "text-blue-600"
+                        : "text-gray-400"
+                    }`}
+                  >
+                    {counts.new}
+                  </span>
+                  <span
+                    className={`text-xs font-medium text-right ${
+                      counts.learning > 0
+                        ? "text-orange-600"
+                        : "text-gray-400"
+                    }`}
+                  >
+                    {counts.learning}
+                  </span>
+                  <span
+                    className={`text-xs font-medium text-right ${
+                      counts.review > 0
+                        ? "text-green-600"
+                        : "text-gray-400"
+                    }`}
+                  >
+                    {counts.review}
+                  </span>
+                  <span className="text-xs text-gray-500 text-right">
+                    ({totalCards})
+                  </span>
+                </div>
+              );
+            }
+            return (
+              <div className="w-40 text-right">
+                <span className="text-xs text-gray-500">
+                  {totalCards}
+                </span>
+              </div>
+            );
+          })()}
+
+          {/* Actions - visible on hover */}
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleAddCardClick}
+              aria-label="Add card"
+              className="h-7 px-2 text-xs hover:bg-gray-200"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+            <DeckSettingsMenu
+              deckId={deck.id}
+              deckName={deck.name}
+              onUpdate={onDeckDeleted}
+            />
+          </div>
         </div>
       </div>
 
@@ -331,26 +303,6 @@ export function DeckTree({
               Cancel
             </Button>
             <Button onClick={handleCreateSubDeck}>Create</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete deck</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete &quot;{deck.name}&quot;? This will also
-              delete all sub-decks and cards. This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleDeleteDeck}>
-              Delete
-            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

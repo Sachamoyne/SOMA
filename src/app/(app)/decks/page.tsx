@@ -93,38 +93,42 @@ export default function DecksPage() {
         showImport
         onImport={() => setImportDialogOpen(true)}
       />
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto max-w-6xl w-full">
-          {loading ? (
-            <div className="rounded-xl border bg-white px-6 py-12 text-center">
-              <p className="text-gray-500">Loading decks...</p>
-            </div>
-          ) : rootDecks.length === 0 ? (
-            <div className="rounded-xl border bg-white px-6 py-12 text-center">
-              <BookOpen className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">No decks yet</h3>
-              <p className="text-gray-500 mb-6">Create your first deck to start learning</p>
-              <Button onClick={() => setDialogOpen(true)}>
-                Create your first deck
-              </Button>
-            </div>
-          ) : (
-            <div className="rounded-xl border bg-white overflow-hidden">
-              {rootDecks.map((deck) => (
-                <DeckTree
-                  key={deck.id}
-                  deck={deck}
-                  allDecks={decks}
-                  cardCounts={cardCounts}
-                  dueCounts={dueCounts}
-                  learningCounts={learningCounts}
-                  level={0}
-                  onDeckCreated={loadDecks}
-                  onDeckDeleted={loadDecks}
-                />
-              ))}
-            </div>
-          )}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="h-full">
+            {loading ? (
+              <div className="rounded-xl border bg-white px-6 py-12 text-center">
+                <p className="text-gray-500">Loading decks...</p>
+              </div>
+            ) : rootDecks.length === 0 ? (
+              <div className="rounded-xl border bg-white px-6 py-12 text-center">
+                <BookOpen className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No decks yet</h3>
+                <p className="text-gray-500 mb-6">Create your first deck to start learning</p>
+                <Button onClick={() => setDialogOpen(true)}>
+                  Create your first deck
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-xl border bg-white overflow-hidden h-full flex flex-col">
+                <div className="flex-1 overflow-y-auto">
+                  {rootDecks.map((deck) => (
+                    <DeckTree
+                      key={deck.id}
+                      deck={deck}
+                      allDecks={decks}
+                      cardCounts={cardCounts}
+                      dueCounts={dueCounts}
+                      learningCounts={learningCounts}
+                      level={0}
+                      onDeckCreated={loadDecks}
+                      onDeckDeleted={loadDecks}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
