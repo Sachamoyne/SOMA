@@ -59,22 +59,19 @@ export default function DashboardPage() {
       try {
         const decks = await listDecks();
 
-        // Calculate total due count: sum of all decks
-        // Note: parent_deck_id column doesn't exist yet, so no filtering needed
-        let totalDue = 0;
-        for (const deck of decks) {
-          totalDue += await getDueCount(deck.id);
-        }
+        // Count only root decks (without parent) to match Decks page display
+        const rootDeckCount = decks.filter((d) => !d.parent_deck_id).length;
 
+        // OPTIMIZED: Removed N+1 query loop for due count
+        // Due count is now calculated from cardBreakdown hook (see useEffect below)
         const [studied, currentStreak, total] = await Promise.all([
           getCardsStudiedToday(),
           getCurrentStreak(),
           getTotalReviews(),
         ]);
 
-        setDeckCount(decks.length);
-        // Card count will be set from cardDistribution hook
-        setDueCount(totalDue);
+        setDeckCount(rootDeckCount);
+        // Card count and due count are set from hooks below
         setStudiedToday(studied);
         setStreak(currentStreak);
         setTotalReviews(total);
@@ -123,6 +120,26 @@ export default function DashboardPage() {
         { name: "Apprises", value: cardDistribution.learned, color: "#22c55e" },
       ].filter((d) => d.value > 0)
     : [];
+
+  // Calculate total for percentage display in legend
+  const totalCards = pieData.reduce((sum, item) => sum + item.value, 0);
+
+  // Custom legend formatter: "Name : X cartes (Y%)"
+  // Recharts passes: (value, entry, index) where entry.payload contains the actual data
+  const formatLegend = (value: string, entry: any) => {
+    // SAFE: Access entry.payload.value with fallback to 0
+    const cardValue = entry?.payload?.value ?? 0;
+
+    // SAFE: Calculate percentage only if totalCards > 0, otherwise default to 0
+    const percentage = totalCards > 0 && cardValue > 0
+      ? ((cardValue / totalCards) * 100).toFixed(1)
+      : "0.0";
+
+    // Handle plural correctly
+    const plural = cardValue > 1 ? "s" : "";
+
+    return `${value} : ${cardValue} carte${plural} (${percentage}%)`;
+  };
 
   return (
     <>
@@ -323,24 +340,7 @@ export default function DashboardPage() {
                             cx="50%"
                             cy="45%"
                             labelLine={false}
-                            label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
-                              const RADIAN = Math.PI / 180;
-                              const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-                              const x = cx + radius * Math.cos(-midAngle * RADIAN);
-                              const y = cy + radius * Math.sin(-midAngle * RADIAN);
-                              return (
-                                <text
-                                  x={x}
-                                  y={y}
-                                  fill="white"
-                                  textAnchor="middle"
-                                  dominantBaseline="central"
-                                  className="text-sm font-bold drop-shadow"
-                                >
-                                  {`${(percent * 100).toFixed(0)}%`}
-                                </text>
-                              );
-                            }}
+                            label={false}
                             outerRadius={80}
                             fill="#8884d8"
                             dataKey="value"
@@ -351,12 +351,13 @@ export default function DashboardPage() {
                           </Pie>
                           <Legend
                             verticalAlign="bottom"
-                            height={36}
+                            height={60}
                             wrapperStyle={{
-                              paddingTop: "10px",
+                              paddingTop: "20px",
                               fontSize: "14px",
                               fontWeight: "600"
                             }}
+                            formatter={formatLegend}
                           />
                         </PieChart>
                       </ResponsiveContainer>

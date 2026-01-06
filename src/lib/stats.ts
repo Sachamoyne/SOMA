@@ -180,7 +180,8 @@ export async function getCardStateBreakdown(
 
   for (const card of cards || []) {
     const dueAt = new Date(card.due_at);
-    if (card.state === "new") {
+    // Only count cards that are due now (consistent with getDueCards and Decks page logic)
+    if (card.state === "new" && dueAt <= now) {
       newCount++;
     } else if (card.state === "learning" && dueAt <= now) {
       learningCount++;
@@ -241,14 +242,15 @@ export async function getCardDistribution(
   let learnedCount = 0;
 
   for (const card of cards || []) {
-    if (card.reps === 0) {
-      // New: never studied
+    // Categorize based on card state (Anki logic)
+    if (card.state === "new") {
+      // New: never studied or not yet graduated
       newCount++;
-    } else if (card.reps > 0 && card.state === "learning") {
-      // Learning: studied but still in learning phase
+    } else if (card.state === "learning" || card.state === "relearning") {
+      // Learning: in learning steps or relearning after lapse
       learningCount++;
-    } else if (card.reps > 0 && card.state === "review") {
-      // Learned: studied and moved to review phase
+    } else if (card.state === "review") {
+      // Learned: graduated to review (mature cards)
       learnedCount++;
     }
   }
