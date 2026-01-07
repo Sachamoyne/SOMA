@@ -190,47 +190,80 @@ export async function createCard(
   type: "basic" | "reversible" | "typed" = "basic",
   supabase: SupabaseClient<Database>
 ): Promise<Card> {
-  // Log full Supabase response so empty error objects don't hide failures
+  // Sanitize inputs
   const sanitizedFront = `${front ?? ""}`.trim();
   const sanitizedBack = `${back ?? ""}`.trim();
   const normalizedType = type || "basic";
 
+  console.log("[createCard] 🚀 START", {
+    deckId,
+    frontLength: sanitizedFront.length,
+    backLength: sanitizedBack.length,
+    type: normalizedType,
+  });
+
   if (!sanitizedFront || !sanitizedBack) {
-    console.error("[createCard] Missing required fields", {
-      deckId,
-      front: sanitizedFront,
-      back: sanitizedBack,
-      type: normalizedType,
-    });
+    console.error("[createCard] ❌ Missing required fields");
     throw new Error("Front and back are required to create a card");
   }
 
+  // Get session - using getSession() which verifies JWT validity
   const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
 
-  console.log("[createCard] auth.getUser()", { user, authError });
+  console.log("[createCard] 🔐 Session check", {
+    hasSession: !!session,
+    userId: session?.user?.id,
+    sessionExpiresAt: session?.expires_at,
+    hasError: !!sessionError,
+  });
 
-  if (authError) {
-    console.error("[createCard] auth.getUser error", authError);
-    throw authError;
+  if (sessionError) {
+    console.error("[createCard] ❌ Session error:", sessionError.message);
+    throw new Error(`Authentication error: ${sessionError.message}`);
   }
 
-  if (!user || !user.id) {
-    throw new Error("No authenticated user in Supabase client");
+  if (!session?.user?.id) {
+    console.error("[createCard] ❌ No valid session");
+    throw new Error("Not authenticated - please log in again");
   }
 
-  const userId = user.id;
+  const userId = session.user.id;
 
+  // Build payload with ALL required fields explicitly to avoid any DEFAULT issues
   const payload = {
     user_id: userId,
     deck_id: deckId,
     front: sanitizedFront,
     back: sanitizedBack,
     type: normalizedType,
-    state: "new",
+    state: "new" as const,
+    suspended: false,
+    interval_days: 0,
+    ease: 2.50,
+    reps: 0,
+    lapses: 0,
+    learning_step_index: 0,
+    due_at: new Date().toISOString(),
   };
+
+  console.log("[createCard] 📤 Attempting INSERT with payload:", {
+    user_id: payload.user_id,
+    deck_id: payload.deck_id,
+    type: payload.type,
+    state: payload.state,
+    suspended: payload.suspended,
+    interval_days: payload.interval_days,
+    ease: payload.ease,
+    reps: payload.reps,
+    lapses: payload.lapses,
+    learning_step_index: payload.learning_step_index,
+    frontLength: payload.front.length,
+    backLength: payload.back.length,
+    due_at: payload.due_at,
+  });
 
   const { data, error } = await supabase
     .from("cards")
@@ -238,19 +271,89 @@ export async function createCard(
     .select()
     .single();
 
-  console.log("[createCard] Supabase insert response", { data, error });
+  console.log("[createCard] 📥 INSERT response received");
 
+  // EXHAUSTIVE ERROR LOGGING - Log each property separately so they show in console
   if (error) {
-    console.error("[createCard] Supabase insert failed", { error, payload });
-    throw error;
+    console.error("[createCard] ❌ ❌ ❌ INSERT FAILED ❌ ❌ ❌");
+    console.error("=".repeat(60));
+    console.error("Error message:", error.message || "(empty string)");
+    console.error("Error code:", error.code || "(no code)");
+    console.error("Error details:", error.details || "(no details)");
+    console.error("Error hint:", error.hint || "(no hint)");
+    console.error("Error status:", (error as any).status || "(no status)");
+    console.error("Error statusCode:", (error as any).statusCode || "(no statusCode)");
+    console.error("Error name:", error.name || "(no name)");
+    console.error("-".repeat(60));
+    console.error("Full error object as JSON:");
+    console.error(JSON.stringify(error, null, 2));
+    console.error("-".repeat(60));
+    console.error("Error object keys:", Object.keys(error));
+    console.error("Error constructor:", error.constructor.name);
+
+    // Check for nested errors
+    if ((error as any).error) {
+      console.error("Nested error found:", (error as any).error);
+    }
+
+    // Log the type of each property
+    console.error("-".repeat(60));
+    console.error("Property types:");
+    Object.keys(error).forEach(key => {
+      console.error(`  ${key}: ${typeof (error as any)[key]} = ${(error as any)[key]}`);
+    });
+    console.error("=".repeat(60));
+
+    // Specific error handling
+    const errorMsg = error.message || "";
+
+    if (!errorMsg || errorMsg === "") {
+      throw new Error(
+        "Card creation blocked by RLS policy or database constraint. " +
+        "Check the console for the full error object above. " +
+        "Try refreshing the page or logging out and back in."
+      );
+    }
+
+    if (errorMsg.includes("violates")) {
+      throw new Error(`Database constraint violated: ${errorMsg}`);
+    }
+
+    if (errorMsg.includes("permission") || errorMsg.includes("policy")) {
+      throw new Error(`Permission denied by RLS policy: ${errorMsg}`);
+    }
+
+    if (errorMsg.includes("Load failed") || errorMsg.includes("network") || errorMsg.includes("TypeError")) {
+      throw new Error(
+        `Network error: ${errorMsg}. Please check your internet connection and try again.`
+      );
+    }
+
+    throw new Error(`Card creation failed: ${errorMsg}`);
   }
 
-  // Update deck's updated_at
-  await supabase
-    .from("decks")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", deckId)
-    .eq("user_id", userId);
+  if (!data) {
+    console.error("[createCard] ❌ INSERT succeeded but no data returned");
+    throw new Error("Card created but no data returned - please refresh the page");
+  }
+
+  console.log("[createCard] ✅ ✅ ✅ SUCCESS ✅ ✅ ✅", {
+    cardId: data.id,
+    deckId: data.deck_id,
+    state: data.state,
+    type: data.type,
+  });
+
+  // Update deck's updated_at timestamp (non-critical operation)
+  try {
+    await supabase
+      .from("decks")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", deckId)
+      .eq("user_id", userId);
+  } catch (deckUpdateError) {
+    console.warn("[createCard] ⚠️ Failed to update deck timestamp (non-critical):", deckUpdateError);
+  }
 
   return data;
 }
