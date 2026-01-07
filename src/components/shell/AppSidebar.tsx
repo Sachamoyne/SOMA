@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, BookOpen, Settings } from "lucide-react";
+import { LayoutDashboard, BookOpen, Settings, List } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { APP_NAME } from "@/lib/brand";
 import { useSidebar } from "@/contexts/SidebarContext";
 
 const navItems = [
   { href: "/decks", label: "Decks", icon: BookOpen },
+  { href: "/browse", label: "Browse", icon: List },
   { href: "/dashboard", label: "Statistiques", icon: LayoutDashboard },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -63,4 +64,3 @@ export function AppSidebar() {
     </div>
   );
 }
-

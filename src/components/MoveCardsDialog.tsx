@@ -49,7 +49,11 @@ export function MoveCardsDialog({
       const decks = await listDecksWithPaths();
       // Filter out current deck
       const filtered = decks.filter((d) => d.deck.id !== currentDeckId);
-      setDecksWithPaths(filtered);
+      const usableDecks = filtered.length > 0 ? filtered : decks;
+      setDecksWithPaths(usableDecks);
+      setSelectedDeckId((prev) =>
+        usableDecks.some((d) => d.deck.id === prev) ? prev : ""
+      );
     } catch (err) {
       console.error("Error loading decks:", err);
       setError("Failed to load decks");
@@ -99,7 +103,10 @@ export function MoveCardsDialog({
             <select
               id="targetDeck"
               value={selectedDeckId}
-              onChange={(e) => setSelectedDeckId(e.target.value)}
+              onChange={(e) => {
+                setSelectedDeckId(e.target.value);
+                if (error) setError(null);
+              }}
               className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               disabled={loading}
             >
@@ -133,4 +140,3 @@ export function MoveCardsDialog({
     </Dialog>
   );
 }
-

@@ -13,6 +13,61 @@ export type Settings = Database["public"]["Tables"]["settings"]["Row"];
 export { previewIntervals, formatInterval, formatIntervalDays, parseSteps } from "./scheduler";
 export type { IntervalPreview, SchedulerSettings } from "./scheduler";
 
+const DECKS_CACHE_TTL_MS = 30_000;
+const CARDS_CACHE_TTL_MS = 20_000;
+
+let decksCache: { data: Deck[]; ts: number } | null = null;
+let decksWithPathsCache: { data: Array<{ deck: Deck; path: string }>; ts: number } | null = null;
+let allCardsCache: { data: Card[]; ts: number } | null = null;
+let allDeckCountsCache: {
+  data: {
+    cardCounts: Record<string, number>;
+    dueCounts: Record<string, number>;
+    learningCounts: Record<string, { new: number; learning: number; review: number }>;
+  };
+  ts: number;
+} | null = null;
+
+function isCacheFresh(ts: number, ttlMs: number): boolean {
+  return Date.now() - ts < ttlMs;
+}
+
+function invalidateDeckCaches(): void {
+  decksCache = null;
+  decksWithPathsCache = null;
+  allDeckCountsCache = null;
+}
+
+function invalidateCardCaches(): void {
+  allCardsCache = null;
+  allDeckCountsCache = null;
+}
+
+function buildDeckPathMap(decks: Deck[]): Map<string, string> {
+  const deckById = new Map(decks.map((deck) => [deck.id, deck]));
+  const memo = new Map<string, string>();
+
+  const buildPath = (deckId: string): string => {
+    if (memo.has(deckId)) return memo.get(deckId)!;
+    const deck = deckById.get(deckId);
+    if (!deck) return "";
+    if (!deck.parent_deck_id) {
+      memo.set(deckId, deck.name);
+      return deck.name;
+    }
+    const parentPath = buildPath(deck.parent_deck_id);
+    const path = parentPath ? `${parentPath}::${deck.name}` : deck.name;
+    memo.set(deckId, path);
+    return path;
+  };
+
+  for (const deck of decks) {
+    buildPath(deck.id);
+  }
+
+  return memo;
+}
+
 // Get current user ID
 async function getCurrentUserId(): Promise<string> {
   const supabase = createClient();
@@ -25,6 +80,10 @@ async function getCurrentUserId(): Promise<string> {
 
 // Deck functions
 export async function listDecks(): Promise<Deck[]> {
+  if (decksCache && isCacheFresh(decksCache.ts, DECKS_CACHE_TTL_MS)) {
+    return decksCache.data;
+  }
+
   const supabase = createClient();
   const userId = await getCurrentUserId();
 
@@ -35,7 +94,9 @@ export async function listDecks(): Promise<Deck[]> {
     .order("updated_at", { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  const result = data || [];
+  decksCache = { data: result, ts: Date.now() };
+  return result;
 }
 
 export async function createDeck(
@@ -61,6 +122,7 @@ export async function createDeck(
     .single();
 
   if (error) throw error;
+  invalidateDeckCaches();
   return data;
 }
 
@@ -75,6 +137,7 @@ export async function renameDeck(id: string, name: string): Promise<void> {
     .eq("user_id", userId);
 
   if (error) throw error;
+  invalidateDeckCaches();
 }
 
 export async function deleteDeck(id: string): Promise<void> {
@@ -101,31 +164,30 @@ export async function deleteDeck(id: string): Promise<void> {
     .eq("user_id", userId);
 
   if (decksError) throw decksError;
+  invalidateDeckCaches();
+  invalidateCardCaches();
 }
 
 export async function getDeckAndAllChildren(deckId: string): Promise<string[]> {
-  const supabase = createClient();
-  const userId = await getCurrentUserId();
+  const allDecks = await listDecks();
+  const childrenByParent = new Map<string, string[]>();
+  for (const deck of allDecks) {
+    if (deck.parent_deck_id) {
+      const list = childrenByParent.get(deck.parent_deck_id) || [];
+      list.push(deck.id);
+      childrenByParent.set(deck.parent_deck_id, list);
+    }
+  }
 
-  // Recursively get all descendant deck IDs
   const result: string[] = [deckId];
   const toProcess = [deckId];
 
   while (toProcess.length > 0) {
     const currentDeckId = toProcess.pop()!;
-
-    // Find all direct children of this deck
-    const { data: children, error } = await supabase
-      .from("decks")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("parent_deck_id", currentDeckId);
-
-    if (error) throw error;
-
-    for (const child of children || []) {
-      result.push(child.id);
-      toProcess.push(child.id);
+    const children = childrenByParent.get(currentDeckId) || [];
+    for (const childId of children) {
+      result.push(childId);
+      toProcess.push(childId);
     }
   }
 
@@ -133,39 +195,25 @@ export async function getDeckAndAllChildren(deckId: string): Promise<string[]> {
 }
 
 export async function getDeckPath(deckId: string): Promise<string> {
-  const supabase = createClient();
-  const userId = await getCurrentUserId();
-
-  // Build the full path by traversing up the hierarchy
-  const pathSegments: string[] = [];
-  let currentDeckId: string | null = deckId;
-
-  while (currentDeckId) {
-    const { data, error } = await supabase
-      .from("decks")
-      .select("name, parent_deck_id")
-      .eq("id", currentDeckId)
-      .eq("user_id", userId)
-      .single();
-
-    if (error || !data) break;
-
-    pathSegments.unshift(data.name); // Add to beginning
-    currentDeckId = data.parent_deck_id;
-  }
-
-  return pathSegments.join("::");
+  const allDecks = await listDecks();
+  const pathMap = buildDeckPathMap(allDecks);
+  return pathMap.get(deckId) || "";
 }
 
 export async function listDecksWithPaths(): Promise<Array<{ deck: Deck; path: string }>> {
+  if (decksWithPathsCache && isCacheFresh(decksWithPathsCache.ts, DECKS_CACHE_TTL_MS)) {
+    return decksWithPathsCache.data;
+  }
+
   const allDecks = await listDecks();
-  const decksWithPaths = await Promise.all(
-    allDecks.map(async (deck) => ({
-      deck,
-      path: await getDeckPath(deck.id),
-    }))
-  );
-  return decksWithPaths.sort((a, b) => a.path.localeCompare(b.path));
+  const pathMap = buildDeckPathMap(allDecks);
+  const decksWithPaths = allDecks.map((deck) => ({
+    deck,
+    path: pathMap.get(deck.id) || deck.name,
+  }));
+  const sorted = decksWithPaths.sort((a, b) => a.path.localeCompare(b.path));
+  decksWithPathsCache = { data: sorted, ts: Date.now() };
+  return sorted;
 }
 
 // Card functions
@@ -181,6 +229,92 @@ export async function listCards(deckId: string): Promise<Card[]> {
 
   if (error) throw error;
   return data || [];
+}
+
+export async function listAllCards(): Promise<Card[]> {
+  if (allCardsCache && isCacheFresh(allCardsCache.ts, CARDS_CACHE_TTL_MS)) {
+    return allCardsCache.data;
+  }
+
+  const supabase = createClient();
+  const userId = await getCurrentUserId();
+
+  const { data, error } = await supabase
+    .from("cards")
+    .select("*")
+    .eq("user_id", userId);
+
+  if (error) throw error;
+  const result = data || [];
+  allCardsCache = { data: result, ts: Date.now() };
+  return result;
+}
+
+export async function setCardDueDate(cardId: string, dueAtIso: string): Promise<void> {
+  const supabase = createClient();
+  const userId = await getCurrentUserId();
+
+  const { error } = await supabase
+    .from("cards")
+    .update({
+      due_at: dueAtIso,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", cardId)
+    .eq("user_id", userId);
+
+  if (error) throw error;
+  invalidateCardCaches();
+}
+
+export async function forgetCard(cardId: string): Promise<void> {
+  const supabase = createClient();
+  const userId = await getCurrentUserId();
+  const nowIso = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("cards")
+    .update({
+      state: "new",
+      due_at: nowIso,
+      interval_days: 0,
+      ease: 2.50,
+      reps: 0,
+      lapses: 0,
+      learning_step_index: 0,
+      last_reviewed_at: null,
+      updated_at: nowIso,
+    })
+    .eq("id", cardId)
+    .eq("user_id", userId);
+
+  if (error) throw error;
+  invalidateCardCaches();
+}
+
+export async function setCardMarked(cardId: string, marked: boolean): Promise<void> {
+  const supabase = createClient();
+  const userId = await getCurrentUserId();
+
+  const { data: card, error: fetchError } = await supabase
+    .from("cards")
+    .select("extra")
+    .eq("id", cardId)
+    .eq("user_id", userId)
+    .single();
+
+  if (fetchError) throw fetchError;
+
+  const nextExtra = { ...(card?.extra || {}), marked };
+
+  const { error } = await supabase
+    .from("cards")
+    .update({ extra: nextExtra, updated_at: new Date().toISOString() })
+    .eq("id", cardId)
+    .eq("user_id", userId);
+
+  if (error) throw error;
+  invalidateCardCaches();
 }
 
 export async function createCard(
@@ -232,13 +366,12 @@ export async function createCard(
 
   const userId = session.user.id;
 
-  // Build payload with ALL required fields explicitly to avoid any DEFAULT issues
-  const payload = {
+  const nowIso = new Date().toISOString();
+
+  // Build base payload with ALL required fields explicitly to avoid any DEFAULT issues
+  const basePayload = {
     user_id: userId,
     deck_id: deckId,
-    front: sanitizedFront,
-    back: sanitizedBack,
-    type: normalizedType,
     state: "new" as const,
     suspended: false,
     interval_days: 0,
@@ -246,30 +379,54 @@ export async function createCard(
     reps: 0,
     lapses: 0,
     learning_step_index: 0,
-    due_at: new Date().toISOString(),
+    due_at: nowIso,
   };
 
+  const isReversible = normalizedType === "reversible";
+  const payload1 = {
+    ...basePayload,
+    front: sanitizedFront,
+    back: sanitizedBack,
+    type: isReversible ? ("basic" as const) : normalizedType,
+  };
+  const payload2 = isReversible
+    ? {
+        ...basePayload,
+        front: sanitizedBack,
+        back: sanitizedFront,
+        type: "basic" as const,
+      }
+    : null;
+  const payloads = payload2 ? [payload1, payload2] : [payload1];
+
+  if (!payload1.front || !payload1.back) {
+    throw new Error("Card creation failed: payload1 missing front/back");
+  }
+  if (payload2 && (!payload2.front || !payload2.back)) {
+    throw new Error("Card creation failed: payload2 missing front/back");
+  }
+
   console.log("[createCard] 📤 Attempting INSERT with payload:", {
-    user_id: payload.user_id,
-    deck_id: payload.deck_id,
-    type: payload.type,
-    state: payload.state,
-    suspended: payload.suspended,
-    interval_days: payload.interval_days,
-    ease: payload.ease,
-    reps: payload.reps,
-    lapses: payload.lapses,
-    learning_step_index: payload.learning_step_index,
-    frontLength: payload.front.length,
-    backLength: payload.back.length,
-    due_at: payload.due_at,
+    user_id: basePayload.user_id,
+    deck_id: basePayload.deck_id,
+    type: normalizedType,
+    state: basePayload.state,
+    suspended: basePayload.suspended,
+    interval_days: basePayload.interval_days,
+    ease: basePayload.ease,
+    reps: basePayload.reps,
+    lapses: basePayload.lapses,
+    learning_step_index: basePayload.learning_step_index,
+    frontLength: sanitizedFront.length,
+    backLength: sanitizedBack.length,
+    due_at: basePayload.due_at,
+    rowCount: payloads.length,
   });
 
   const { data, error } = await supabase
     .from("cards")
-    .insert(payload)
-    .select()
-    .single();
+    .insert(payloads)
+    .select();
 
   console.log("[createCard] 📥 INSERT response received");
 
@@ -332,16 +489,21 @@ export async function createCard(
     throw new Error(`Card creation failed: ${errorMsg}`);
   }
 
-  if (!data) {
+  if (!data || data.length === 0) {
     console.error("[createCard] ❌ INSERT succeeded but no data returned");
     throw new Error("Card created but no data returned - please refresh the page");
   }
 
+  const primaryCard =
+    data.find((card) => card.front === sanitizedFront && card.back === sanitizedBack) ??
+    data[0];
+
   console.log("[createCard] ✅ ✅ ✅ SUCCESS ✅ ✅ ✅", {
-    cardId: data.id,
-    deckId: data.deck_id,
-    state: data.state,
-    type: data.type,
+    cardId: primaryCard.id,
+    deckId: primaryCard.deck_id,
+    state: primaryCard.state,
+    type: primaryCard.type,
+    rowCount: data.length,
   });
 
   // Update deck's updated_at timestamp (non-critical operation)
@@ -355,7 +517,8 @@ export async function createCard(
     console.warn("[createCard] ⚠️ Failed to update deck timestamp (non-critical):", deckUpdateError);
   }
 
-  return data;
+  invalidateCardCaches();
+  return primaryCard;
 }
 
 export async function deleteCard(id: string): Promise<void> {
@@ -379,6 +542,7 @@ export async function deleteCard(id: string): Promise<void> {
     .eq("user_id", userId);
 
   if (error) throw error;
+  invalidateCardCaches();
 
   // Update deck's updated_at
   if (card) {
@@ -427,6 +591,7 @@ export async function updateCard(
     .eq("user_id", userId);
 
   if (error) throw error;
+  invalidateCardCaches();
 
   // Update deck's updated_at
   if (card) {
@@ -452,6 +617,7 @@ export async function suspendCard(id: string): Promise<void> {
     .eq("user_id", userId);
 
   if (error) throw error;
+  invalidateCardCaches();
 }
 
 export async function unsuspendCard(id: string): Promise<void> {
@@ -468,6 +634,7 @@ export async function unsuspendCard(id: string): Promise<void> {
     .eq("user_id", userId);
 
   if (error) throw error;
+  invalidateCardCaches();
 }
 
 export async function moveCardsToDeck(
@@ -489,6 +656,7 @@ export async function moveCardsToDeck(
     .eq("user_id", userId);
 
   if (error) throw error;
+  invalidateCardCaches();
 
   // Update deck's updated_at
   await supabase
@@ -718,6 +886,10 @@ export async function getAllDeckCounts(deckIds: string[]): Promise<{
   dueCounts: Record<string, number>;
   learningCounts: Record<string, { new: number; learning: number; review: number }>;
 }> {
+  if (allDeckCountsCache && isCacheFresh(allDeckCountsCache.ts, CARDS_CACHE_TTL_MS)) {
+    return allDeckCountsCache.data;
+  }
+
   const supabase = createClient();
   const userId = await getCurrentUserId();
   const now = new Date().toISOString();
@@ -792,7 +964,9 @@ export async function getAllDeckCounts(deckIds: string[]): Promise<{
     learningCounts[deckId] = counts;
   }
 
-  return { cardCounts, dueCounts, learningCounts };
+  const result = { cardCounts, dueCounts, learningCounts };
+  allDeckCountsCache = { data: result, ts: Date.now() };
+  return result;
 }
 
 export async function reviewCard(
@@ -926,6 +1100,7 @@ export async function reviewCard(
     new_state: updatedCard.state,
     new_due_at: updatedCard.due_at,
   });
+  invalidateCardCaches();
 
   // Create detailed review record
   const reviewData = {

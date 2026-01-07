@@ -69,7 +69,6 @@ export async function getDeckSettings(deckId: string): Promise<DeckSettings> {
   const supabase = createClient();
   const userId = await getCurrentUserId();
 
-  console.log(`[getDeckSettings] Fetching settings for deck ${deckId}, user ${userId}`);
 
   const { data, error } = await supabase
     .from("deck_settings")
@@ -90,7 +89,6 @@ export async function getDeckSettings(deckId: string): Promise<DeckSettings> {
 
   if (!data) {
     // No deck-specific settings exist, return empty (all inherited)
-    console.log(`[getDeckSettings] No settings found for deck ${deckId}, returning defaults`);
     return {
       deckId,
       newCardsPerDay: null,
@@ -101,7 +99,6 @@ export async function getDeckSettings(deckId: string): Promise<DeckSettings> {
     };
   }
 
-  console.log(`[getDeckSettings] Settings found for deck ${deckId}`, data);
   return fromDatabaseRow(data);
 }
 

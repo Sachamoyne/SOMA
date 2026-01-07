@@ -37,14 +37,12 @@ export function DeckOptions({ open, onOpenChange, deckId, deckName }: DeckOption
       setError(null);
 
       try {
-        console.log(`[DeckOptions] Loading settings for deck ${deckId}`);
 
         const [deck, global] = await Promise.all([
           getDeckSettings(deckId),
           getSettings(),
         ]);
 
-        console.log("[DeckOptions] Settings loaded successfully", { deck, global });
         setDeckSettings(deck);
         setGlobalSettings(global);
       } catch (error) {

@@ -73,6 +73,8 @@ interface DeckTreeProps {
   dueCounts: Record<string, number>;
   learningCounts: Record<string, { new: number; learning: number; review: number }>;
   level: number;
+  expandedDeckIds: Set<string>;
+  onToggleExpand: (deckId: string) => void;
   onDeckCreated: () => void;
   onDeckDeleted: () => void;
 }
@@ -84,13 +86,13 @@ export function DeckTree({
   dueCounts,
   learningCounts,
   level,
+  expandedDeckIds,
+  onToggleExpand,
   onDeckCreated,
   onDeckDeleted,
 }: DeckTreeProps) {
   const router = useRouter();
   const supabase = createClient();
-  // Default to collapsed (false) for cleaner initial UI, matching Anki's behavior
-  const [expanded, setExpanded] = useState(false);
   const [subDeckDialogOpen, setSubDeckDialogOpen] = useState(false);
   const [subDeckName, setSubDeckName] = useState("");
   const [addCardDialogOpen, setAddCardDialogOpen] = useState(false);
@@ -101,6 +103,7 @@ export function DeckTree({
   const children = allDecks.filter((d) => d.parent_deck_id === deck.id);
   const hasChildren = children.length > 0;
   const indent = level * 20; // 20px per level for clear hierarchy
+  const expanded = expandedDeckIds.has(deck.id);
   const parentDeck = deck.parent_deck_id
     ? allDecks.find((d) => d.id === deck.parent_deck_id)
     : null;
@@ -119,12 +122,12 @@ export function DeckTree({
   };
 
   const handleDeckClick = () => {
-    router.push(`/study/${deck.id}`);
+    router.push(`/decks/${deck.id}`);
   };
 
   const handleExpandClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setExpanded(!expanded);
+    onToggleExpand(deck.id);
   };
 
   const handleAddSubDeckClick = (e: React.MouseEvent) => {
@@ -154,7 +157,7 @@ export function DeckTree({
   return (
     <div>
       <div
-        className="flex items-center justify-between px-3 py-2 border-b last:border-b-0 hover:bg-gray-50 transition-colors cursor-pointer group"
+        className="flex items-center justify-between px-3 py-1.5 border-b last:border-b-0 hover:bg-gray-50 transition-colors cursor-pointer group"
         style={{ paddingLeft: `${12 + indent}px` }}
         onClick={handleDeckClick}
         onKeyDown={(e) => {
@@ -273,6 +276,8 @@ export function DeckTree({
               dueCounts={dueCounts}
               learningCounts={learningCounts}
               level={level + 1}
+              expandedDeckIds={expandedDeckIds}
+              onToggleExpand={onToggleExpand}
               onDeckCreated={onDeckCreated}
               onDeckDeleted={onDeckDeleted}
             />
@@ -324,10 +329,7 @@ export function DeckTree({
                 placeholder="Question or front text"
                 value={cardFront}
                 onChange={(e) => {
-                  console.log("🔍 RAW INPUT (Front):", e.target.value);
-                  console.log("🔍 Is reversed?:", e.target.value === e.target.value.split("").reverse().join(""));
                   setCardFront(e.target.value);
-                  console.log("✅ State will be set to:", e.target.value);
                 }}
               />
               <div className="mt-1 text-xs text-muted-foreground">
@@ -340,10 +342,7 @@ export function DeckTree({
                 placeholder="Answer or back text"
                 value={cardBack}
                 onChange={(e) => {
-                  console.log("🔍 RAW INPUT (Back):", e.target.value);
-                  console.log("🔍 Is reversed?:", e.target.value === e.target.value.split("").reverse().join(""));
                   setCardBack(e.target.value);
-                  console.log("✅ State will be set to:", e.target.value);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && cardFront.trim() && cardBack.trim()) {

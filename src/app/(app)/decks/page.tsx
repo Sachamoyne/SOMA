@@ -29,12 +29,11 @@ export default function DecksPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [deckName, setDeckName] = useState("");
+  const [expandedDeckIds, setExpandedDeckIds] = useState<Set<string>>(new Set());
 
   const loadDecks = async () => {
     try {
-      console.log('📂 loadDecks START');
       const loadedDecks = await listDecks();
-      console.log('✅ Loaded', loadedDecks.length, 'decks:', loadedDecks);
       setDecks(loadedDecks);
 
       // OPTIMIZED: Get all counts in a single batch query instead of N+1 queries
@@ -45,7 +44,6 @@ export default function DecksPage() {
       setCardCounts(cardCounts);
       setDueCounts(dueCounts);
       setLearningCounts(learningCounts);
-      console.log('✅ loadDecks COMPLETE');
     } catch (error) {
       console.error("❌ Error loading decks:", error);
     } finally {
@@ -61,13 +59,8 @@ export default function DecksPage() {
     if (!deckName.trim()) return;
 
     try {
-      console.log('🔷 handleCreateDeck START with name:', deckName.trim());
       const newDeck = await createDeck(deckName.trim());
-      console.log('✅ Deck created:', newDeck);
-
-      console.log('📂 Reloading decks...');
       await loadDecks();
-      console.log('✅ Decks reloaded');
 
       setDeckName("");
       setDialogOpen(false);
@@ -95,7 +88,7 @@ export default function DecksPage() {
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div className="h-full">
+          <div>
             {loading ? (
               <div className="rounded-xl border bg-white px-6 py-12 text-center">
                 <p className="text-gray-500">Loading decks...</p>
@@ -110,7 +103,7 @@ export default function DecksPage() {
                 </Button>
               </div>
             ) : (
-              <div className="rounded-xl border bg-white overflow-hidden h-full flex flex-col">
+              <div className="rounded-xl border bg-white overflow-hidden">
                 {/* Header explicatif - aligné avec les colonnes des decks */}
                 <div className="flex items-center justify-between px-3 py-2 bg-gray-50/50 border-b">
                   {/* Left: Espace pour chevron + icon + nom */}
@@ -121,6 +114,14 @@ export default function DecksPage() {
 
                   {/* Right: Labels alignés avec les colonnes de chiffres */}
                   <div className="flex items-center gap-3 flex-shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setExpandedDeckIds(new Set())}
+                      className="h-7 px-2 text-xs"
+                    >
+                      Collapse all
+                    </Button>
                     {/* Grille identique à celle de DeckTree pour alignement parfait */}
                     <div className="grid grid-cols-4 w-52 gap-3">
                       <span className="text-xs font-medium text-muted-foreground text-right whitespace-nowrap">New</span>
@@ -134,7 +135,7 @@ export default function DecksPage() {
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto">
+                <div>
                   {rootDecks.map((deck) => (
                     <DeckTree
                       key={deck.id}
@@ -144,6 +145,18 @@ export default function DecksPage() {
                       dueCounts={dueCounts}
                       learningCounts={learningCounts}
                       level={0}
+                      expandedDeckIds={expandedDeckIds}
+                      onToggleExpand={(deckId) => {
+                        setExpandedDeckIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(deckId)) {
+                            next.delete(deckId);
+                          } else {
+                            next.add(deckId);
+                          }
+                          return next;
+                        });
+                      }}
                       onDeckCreated={loadDecks}
                       onDeckDeleted={loadDecks}
                     />
