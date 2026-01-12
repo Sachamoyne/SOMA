@@ -5,9 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { FileText, Image as ImageIcon, RefreshCw } from "lucide-react";
-import { listImports, generateCards, type GenerateCardsResult } from "@/store/decks";
-import type { ImportDoc } from "@/lib/db";
-import type { CardProposal } from "@/store/decks";
+import { listImports, generateCards, type GenerateCardsResult, type CardProposal, type ImportDoc } from "@/store/imports";
 
 interface ImportsListProps {
   deckId: string;
@@ -70,7 +68,7 @@ export function ImportsList({
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    {importDoc.fileType === "pdf" ? (
+                    {importDoc.file_type === "pdf" ? (
                       <FileText className="h-4 w-4 text-muted-foreground" />
                     ) : (
                       <ImageIcon className="h-4 w-4 text-muted-foreground" />
@@ -100,14 +98,14 @@ export function ImportsList({
               <CardContent>
                 <div className="space-y-1 text-sm text-muted-foreground">
                   <p>
-                    {importDoc.fileType === "pdf" && importDoc.pageCount
-                      ? `${importDoc.pageCount} page(s)`
-                      : importDoc.fileType === "image" && importDoc.ocrConfidence
-                        ? `OCR: ${Math.round(importDoc.ocrConfidence * 100)}%`
+                    {importDoc.file_type === "pdf" && importDoc.page_count
+                      ? `${importDoc.page_count} page(s)`
+                      : importDoc.file_type === "image" && importDoc.ocr_confidence
+                        ? `OCR: ${Math.round(importDoc.ocr_confidence * 100)}%`
                         : null}
                   </p>
                   <p className="text-xs">
-                    {new Date(importDoc.createdAt).toLocaleString()}
+                    {new Date(importDoc.created_at).toLocaleString()}
                   </p>
                 </div>
               </CardContent>

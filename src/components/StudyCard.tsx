@@ -68,7 +68,7 @@ export function StudyCard({
 
   // Derive currentCard safely
   const currentCard = queue[currentIndex] ?? null;
-  const currentDeck = currentCard && deckMap ? deckMap.get(currentCard.deckId) : null;
+  const currentDeck = currentCard && deckMap ? deckMap.get(currentCard.deck_id) : null;
 
   // Debug: Log card HTML to verify image tags
   useEffect(() => {

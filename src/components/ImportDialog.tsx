@@ -15,9 +15,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Upload, FileText, Image as ImageIcon, Loader2 } from "lucide-react";
-import { listDecks, createImport, generateCards, persistGeneratedCards, type GenerateCardsResult } from "@/store/decks";
-import { GeneratedCardRow, type CardProposal } from "@/components/GeneratedCardRow";
-import type { Deck } from "@/lib/db";
+import { listDecks, type Deck } from "@/store/decks";
+import { createImport, generateCards, persistGeneratedCards, type GenerateCardsResult, type CardProposal } from "@/store/imports";
+import { GeneratedCardRow } from "@/components/GeneratedCardRow";
 
 // Import dynamique pour éviter les erreurs SSR
 let pdfjsLib: any = null;
@@ -270,7 +270,7 @@ export function ImportDialog({
       );
       setGeneratedCards(result.cards);
       setUsedFallback(result.usedFallback);
-      setSelectedCardIndices(new Set(result.cards.map((_, i) => i)));
+      setSelectedCardIndices(new Set(result.cards.map((_: unknown, i: number) => i)));
       setStep("review-cards");
     } catch (error) {
       alert("Failed to generate cards: " + (error instanceof Error ? error.message : "Unknown error"));

@@ -31,7 +31,6 @@ export {
   getTotalReviews,
   getSettings,
   updateSettings,
-  invalidateAllCaches,
   // Scheduler functions
   previewIntervals,
   formatInterval,
@@ -48,8 +47,3 @@ export {
   type Settings,
 } from "@/lib/supabase-db";
 
-// Note: Import-related functions are not yet migrated to Supabase
-// These still use the old Dexie implementation for now
-// You can migrate them later or keep them in Dexie since they're ephemeral
-
-export { createImport, listImports, generateCards, persistGeneratedCards, type CardProposal, type GenerateCardsResult } from "./decks";

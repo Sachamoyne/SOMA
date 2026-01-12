@@ -25,7 +25,7 @@ export default function DeckStatsPage() {
             <BarChart3 className="h-16 w-16 text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-2">Statistics Coming Soon</h3>
             <p className="text-sm text-muted-foreground max-w-md">
-              We're working on detailed statistics and analytics to help you track
+              We&apos;re working on detailed statistics and analytics to help you track
               your learning progress. This feature will include:
             </p>
             <ul className="mt-4 text-sm text-muted-foreground space-y-1 text-left">

@@ -24,7 +24,7 @@ export async function POST() {
 
   const { data: bucket, error: bucketError } = await supabase.storage.getBucket(BUCKET_NAME);
 
-  if (bucketError && bucketError.statusCode !== 404) {
+  if (bucketError && (bucketError as unknown as { statusCode?: number }).statusCode !== 404) {
     console.error("[STORAGE] Failed to read bucket", bucketError);
     return NextResponse.json(
       { error: "Failed to read storage bucket" },

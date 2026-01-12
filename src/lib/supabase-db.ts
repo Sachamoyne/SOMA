@@ -348,7 +348,7 @@ export async function createCard(
   front: string,
   back: string,
   type: "basic" | "reversible" | "typed" = "basic",
-  supabase: SupabaseClient<Database>
+  supabase: SupabaseClient
 ): Promise<Card> {
   // Sanitize inputs
   const sanitizedFront = `${front ?? ""}`.trim();
@@ -1275,10 +1275,10 @@ function convertSettingsToCamelCase(dbSettings: any): Settings {
     reviewOrder: dbSettings.review_order,
     created_at: dbSettings.created_at,
     updated_at: dbSettings.updated_at,
-  } as Settings;
+  } as unknown as Settings;
 }
 
-export async function updateSettings(settings: Partial<Omit<Settings, "user_id" | "created_at" | "updated_at">>): Promise<void> {
+export async function updateSettings(settings: Record<string, unknown>): Promise<void> {
   const supabase = createClient();
   const userId = await getCurrentUserId();
 

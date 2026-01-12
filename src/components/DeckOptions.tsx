@@ -124,7 +124,7 @@ export function DeckOptions({ open, onOpenChange, deckId, deckName, onSaved }: D
                   <ol className="list-decimal ml-4 space-y-1 mb-3">
                     <li>Ouvrez le fichier <code className="bg-red-200 px-1 rounded">SUPABASE_CLOUD_SETUP.sql</code></li>
                     <li>Allez sur <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="underline font-medium">Supabase Dashboard → SQL Editor</a></li>
-                    <li>Copiez-collez le SQL et cliquez "Run"</li>
+                    <li>Copiez-collez le SQL et cliquez &quot;Run&quot;</li>
                   </ol>
                   <p className="text-xs italic">Consultez SETUP_DECK_SETTINGS_CLOUD.md pour plus de détails</p>
                 </div>

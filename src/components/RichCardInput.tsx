@@ -96,10 +96,11 @@ export function RichCardInput({
 
       if (error) {
         handledError = true;
+        const statusCode = (error as unknown as { statusCode?: string }).statusCode;
         console.error("[RICH CARD INPUT] ❌ Upload failed:", {
           error,
           message: error.message,
-          statusCode: error.statusCode,
+          statusCode,
           bucket: IMAGE_BUCKET,
           path: storagePath
         });
@@ -107,7 +108,7 @@ export function RichCardInput({
         // Check for specific error: bucket not found
         if (error.message?.toLowerCase().includes('bucket') ||
             error.message?.toLowerCase().includes('not found') ||
-            error.statusCode === '404') {
+            statusCode === '404') {
           console.error("[RICH CARD INPUT] 🚨 BUCKET 'card-media' NOT FOUND!");
           console.error("[RICH CARD INPUT] 🚨 SETUP REQUIRED:");
           console.error("[RICH CARD INPUT] 🚨   1. Go to Supabase Dashboard → Storage");

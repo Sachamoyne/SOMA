@@ -577,16 +577,17 @@ export async function POST(request: NextRequest) {
           });
 
         if (uploadError) {
+          const statusCode = (uploadError as unknown as { statusCode?: string }).statusCode;
           console.error(`[ANKI IMPORT] ❌ Failed to upload ${fileName}:`, {
             error: uploadError,
             message: uploadError.message,
-            statusCode: uploadError.statusCode,
+            statusCode,
             bucket: 'card-media',
             path: storagePath
           });
 
           // CRITICAL: If bucket doesn't exist, this will fail with 404
-          if (uploadError.statusCode === '404' || uploadError.message?.includes('Bucket not found')) {
+          if (statusCode === '404' || uploadError.message?.includes('Bucket not found')) {
             console.error(`[ANKI IMPORT] 🚨 BUCKET 'card-media' DOES NOT EXIST!`);
             console.error(`[ANKI IMPORT] 🚨 CREATE IT: Supabase Dashboard → Storage → Create bucket 'card-media' (public)`);
           }
