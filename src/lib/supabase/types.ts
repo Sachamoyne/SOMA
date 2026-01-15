@@ -306,14 +306,35 @@ export interface Database {
         Row: {
           user_id: string
           status: string
+          stripe_customer_id: string | null
+          subscription_id: string | null
+          subscription_status: string | null
+          plan_name: string | null
+          ai_cards_limit: number | null
+          ai_cards_used: number | null
+          current_period_end: string | null
         }
         Insert: {
           user_id: string
           status?: string
+          stripe_customer_id?: string | null
+          subscription_id?: string | null
+          subscription_status?: string | null
+          plan_name?: string | null
+          ai_cards_limit?: number | null
+          ai_cards_used?: number | null
+          current_period_end?: string | null
         }
         Update: {
           user_id?: string
           status?: string
+          stripe_customer_id?: string | null
+          subscription_id?: string | null
+          subscription_status?: string | null
+          plan_name?: string | null
+          ai_cards_limit?: number | null
+          ai_cards_used?: number | null
+          current_period_end?: string | null
         }
       }
     }
