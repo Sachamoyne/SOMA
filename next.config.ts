@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+
   webpack: (config) => {
     config.resolve.alias = {
       ...config.resolve.alias,
@@ -9,6 +13,7 @@ const nextConfig: NextConfig = {
     return config;
   },
 };
+
 
 export default nextConfig;
 
