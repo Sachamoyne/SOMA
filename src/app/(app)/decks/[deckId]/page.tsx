@@ -149,46 +149,7 @@ export default function DeckOverviewPage() {
         body: formData,
       });
 
-      // Safely parse response - handle non-JSON responses
-      let data: any;
-      try {
-        const responseText = await response.text();
-        
-        // Check if response is JSON
-        const contentType = response.headers.get("content-type");
-        if (!contentType || !contentType.includes("application/json")) {
-          console.error("[handlePdfUpload] Non-JSON response:", {
-            status: response.status,
-            contentType,
-            text: responseText.substring(0, 500),
-          });
-          setPdfError(
-            `Server error: Expected JSON but got ${contentType || "unknown"}. Status: ${response.status}`
-          );
-          return;
-        }
-
-        // Parse JSON
-        try {
-          data = JSON.parse(responseText);
-        } catch (parseError) {
-          console.error("[handlePdfUpload] Failed to parse JSON:", {
-            status: response.status,
-            text: responseText.substring(0, 500),
-            error: parseError,
-          });
-          setPdfError(
-            `Failed to parse server response: ${parseError instanceof Error ? parseError.message : "Invalid JSON"}`
-          );
-          return;
-        }
-      } catch (readError) {
-        console.error("[handlePdfUpload] Failed to read response:", readError);
-        setPdfError(
-          `Failed to read server response: ${readError instanceof Error ? readError.message : "Unknown error"}`
-        );
-        return;
-      }
+      const data = await response.json();
 
       if (!response.ok) {
         // Handle quota errors
@@ -198,7 +159,7 @@ export default function DeckOverviewPage() {
           setPaywallOpen(true);
           return;
         }
-        setPdfError(data.error || data.details || "Failed to generate cards from PDF");
+        setPdfError(data.error || "Failed to generate cards from PDF");
         return;
       }
 
