@@ -4,8 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { BookOpen, Trash2, Sparkles, FileText, Upload } from "lucide-react";
-import { getAnkiCountsForDecks, deleteDeck } from "@/store/decks";
+import { BookOpen, Trash2, Sparkles, FileText, Check, X, CheckCheck, XCircle } from "lucide-react";
+import { getAnkiCountsForDecks, deleteDeck, invalidateCardCaches } from "@/store/decks";
 import { useTranslation } from "@/i18n";
 import { PaywallModal } from "@/components/PaywallModal";
 import { QuotaIndicator } from "@/components/QuotaIndicator";
@@ -16,12 +16,6 @@ interface CardPreview {
   back: string;
   tags?: string[];
   difficulty?: number;
-}
-
-interface GenerateResponse {
-  deck_id: string;
-  imported: number;
-  cards: CardPreview[];
 }
 
 export default function DeckOverviewPage() {
@@ -37,14 +31,19 @@ export default function DeckOverviewPage() {
   }>({ new: 0, learning: 0, review: 0 });
   const [totalCards, setTotalCards] = useState(0);
 
-  // Local state for AI card generation, scoped to this deck
+  // AI card generation state
   const [aiText, setAiText] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [aiResult, setAiResult] = useState<GenerateResponse | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
+
+  // New: Preview state (cards not yet confirmed)
+  const [generatedCards, setGeneratedCards] = useState<CardPreview[] | null>(null);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [confirmedCount, setConfirmedCount] = useState<number | null>(null);
 
   useEffect(() => {
     async function loadCounts() {
@@ -67,6 +66,8 @@ export default function DeckOverviewPage() {
   useEffect(() => {
     const handleCountsUpdated = () => {
       setLoading(true);
+      // Invalidate cache to get fresh data
+      invalidateCardCaches();
       const normalizedDeckId = String(deckId);
       getAnkiCountsForDecks([normalizedDeckId])
         .then(({ due, total }) => {
@@ -115,27 +116,134 @@ export default function DeckOverviewPage() {
 
   const canGenerateWithAI = aiText.trim().length > 0 && !aiLoading && canUseAI;
 
+  // Reset preview state
+  const resetPreview = () => {
+    setGeneratedCards(null);
+    setSelectedIndices(new Set());
+    setConfirmedCount(null);
+    setAiError(null);
+    setPdfError(null);
+  };
+
+  // Toggle card selection
+  const toggleCard = (index: number) => {
+    setSelectedIndices(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
+
+  // Select all cards
+  const selectAll = () => {
+    if (generatedCards) {
+      setSelectedIndices(new Set(generatedCards.map((_, i) => i)));
+    }
+  };
+
+  // Deselect all cards
+  const deselectAll = () => {
+    setSelectedIndices(new Set());
+  };
+
+  // Confirm and insert selected cards
+  const handleConfirmCards = async () => {
+    console.log("[handleConfirmCards] START", {
+      hasGeneratedCards: !!generatedCards,
+      generatedCardsLength: generatedCards?.length,
+      selectedIndicesSize: selectedIndices.size,
+      selectedIndices: Array.from(selectedIndices),
+    });
+
+    if (!generatedCards || selectedIndices.size === 0) {
+      console.log("[handleConfirmCards] Early return - no cards or no selection");
+      return;
+    }
+
+    setConfirmLoading(true);
+    setAiError(null);
+
+    try {
+      const selectedCards = generatedCards.filter((_, index) => selectedIndices.has(index));
+
+      console.log("[handleConfirmCards] Sending request", {
+        deck_id: String(deckId),
+        selectedCardsCount: selectedCards.length,
+        selectedCards: selectedCards.map(c => ({ front: c.front.substring(0, 50) })),
+      });
+
+      const response = await fetch("/api/confirm-cards", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          deck_id: String(deckId),
+          cards: selectedCards,
+        }),
+      });
+
+      console.log("[handleConfirmCards] Response received", {
+        status: response.status,
+        ok: response.ok,
+      });
+
+      const data = await response.json();
+      console.log("[handleConfirmCards] Response data", data);
+
+      if (!response.ok) {
+        console.log("[handleConfirmCards] Response NOT OK, handling error");
+        // Handle quota errors
+        if (data.error === "QUOTA_FREE_PLAN" || data.error === "QUOTA_EXCEEDED") {
+          setPaywallReason(data.error === "QUOTA_FREE_PLAN" ? "free_plan" : "quota_exceeded");
+          setPaywallPlan(data.plan === "starter" ? "starter" : data.plan === "pro" ? "pro" : undefined);
+          setPaywallOpen(true);
+          return;
+        }
+        setAiError(data.message || data.error || "Erreur lors de la confirmation");
+        return;
+      }
+
+      // Success!
+      console.log("[handleConfirmCards] SUCCESS - imported:", data.imported);
+      setConfirmedCount(data.imported);
+      setGeneratedCards(null);
+      setSelectedIndices(new Set());
+
+      // Trigger a refresh of deck counts
+      window.dispatchEvent(new Event("soma-counts-updated"));
+    } catch (error) {
+      console.error("[handleConfirmCards] CATCH error:", error);
+      setAiError(error instanceof Error ? error.message : "Erreur lors de la confirmation");
+    } finally {
+      setConfirmLoading(false);
+    }
+  };
+
   const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     // Validate file type
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      setPdfError("Invalid file type");
+      setPdfError("Type de fichier invalide. Veuillez sélectionner un fichier PDF.");
       return;
     }
 
-    // Validate file size (10 MB)
-    const MAX_SIZE = 10 * 1024 * 1024;
+    // Validate file size (15 MB)
+    const MAX_SIZE = 15 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
-      setPdfError("PDF too large");
+      setPdfError(`Le PDF est trop volumineux. Taille maximale : ${Math.round(MAX_SIZE / 1024 / 1024)} MB.`);
       return;
     }
 
     setPdfLoading(true);
-    setPdfError(null);
-    setAiError(null);
-    setAiResult(null);
+    resetPreview();
 
     try {
       const formData = new FormData();
@@ -149,7 +257,29 @@ export default function DeckOverviewPage() {
         body: formData,
       });
 
-      const data = await response.json();
+      // Read response as text first to handle non-JSON responses gracefully
+      const responseText = await response.text();
+      const contentType = response.headers.get("content-type");
+
+      let data: any;
+      try {
+        // Check if response is JSON
+        if (!contentType || !contentType.includes("application/json")) {
+          console.error("[handlePdfUpload] Non-JSON response:", {
+            status: response.status,
+            contentType,
+            text: responseText.substring(0, 200),
+          });
+          setPdfError("Le serveur a renvoyé une réponse invalide. Veuillez réessayer.");
+          return;
+        }
+
+        data = JSON.parse(responseText);
+      } catch (jsonError) {
+        console.error("[handlePdfUpload] Failed to parse JSON response:", jsonError, "Response text:", responseText.substring(0, 200));
+        setPdfError("Impossible de lire la réponse du serveur. Veuillez réessayer.");
+        return;
+      }
 
       if (!response.ok) {
         // Handle quota errors
@@ -159,14 +289,33 @@ export default function DeckOverviewPage() {
           setPaywallOpen(true);
           return;
         }
-        setPdfError(data.error || "Failed to generate cards from PDF");
+
+        // Handle PDF-specific errors with user-friendly messages
+        if (data.code === "PDF_NO_TEXT" || data.code === "PDF_SCANNED") {
+          setPdfError("Ce PDF ne contient pas de texte sélectionnable. Il s'agit probablement d'un PDF scanné (image). Veuillez utiliser un PDF avec du texte.");
+          return;
+        }
+
+        if (data.code === "PDF_ENCRYPTED") {
+          setPdfError("Ce PDF est protégé par un mot de passe. Veuillez le déverrouiller avant de l'importer.");
+          return;
+        }
+
+        if (data.code === "PDF_INVALID") {
+          setPdfError("Ce fichier PDF semble corrompu ou mal formé. Veuillez essayer un autre fichier.");
+          return;
+        }
+
+        // Use the message from the API (already in French)
+        const errorMessage = data.message || data.error || "Échec de la génération de cartes depuis le PDF";
+        setPdfError(errorMessage);
         return;
       }
 
-      setAiResult(data);
-
-      // Trigger a refresh of deck counts
-      window.dispatchEvent(new Event("soma-counts-updated"));
+      // Success - show preview (cards NOT inserted yet)
+      setGeneratedCards(data.cards);
+      // Select all by default
+      setSelectedIndices(new Set(data.cards.map((_: any, i: number) => i)));
     } catch (error) {
       console.error("Error generating cards from PDF:", error);
       setPdfError(
@@ -185,8 +334,7 @@ export default function DeckOverviewPage() {
     if (!canGenerateWithAI) return;
 
     setAiLoading(true);
-    setAiError(null);
-    setAiResult(null);
+    resetPreview();
 
     try {
       const response = await fetch("/api/generate-cards", {
@@ -216,11 +364,11 @@ export default function DeckOverviewPage() {
         return;
       }
 
-      setAiResult(data);
+      // Success - show preview (cards NOT inserted yet)
+      setGeneratedCards(data.cards);
+      // Select all by default
+      setSelectedIndices(new Set(data.cards.map((_: any, i: number) => i)));
       setAiText("");
-
-      // Trigger a refresh of deck counts elsewhere in the app
-      window.dispatchEvent(new Event("soma-counts-updated"));
     } catch (error) {
       console.error("Error generating AI cards:", error);
       setAiError(
@@ -323,79 +471,86 @@ export default function DeckOverviewPage() {
             </p>
           </div>
 
-          {/* Input */}
-          <div className="space-y-4">
-            {/* PDF Upload Option */}
-            <div className="flex items-center gap-2">
-              <input
-                ref={pdfInputRef}
-                type="file"
-                accept=".pdf"
-                onChange={handlePdfUpload}
-                disabled={!canUseAI || pdfLoading || aiLoading}
-                className="hidden"
-                id="pdf-upload"
-              />
-              <label
-                htmlFor="pdf-upload"
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
-                  !canUseAI || pdfLoading || aiLoading
-                    ? "opacity-50 cursor-not-allowed border-muted bg-muted"
-                    : "border-primary/20 bg-primary/5 hover:bg-primary/10"
-                }`}
-              >
-                <FileText className="h-4 w-4" />
-                <span className="text-sm font-medium">
-                  {pdfLoading ? "Traitement du PDF..." : "Importer un PDF"}
-                </span>
-              </label>
-            </div>
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
+          {/* Input - hide when preview is showing */}
+          {!generatedCards && (
+            <div className="space-y-4">
+              {/* PDF Upload Option */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={pdfInputRef}
+                    type="file"
+                    accept=".pdf"
+                    onChange={handlePdfUpload}
+                    disabled={!canUseAI || pdfLoading || aiLoading}
+                    className="hidden"
+                    id="pdf-upload"
+                  />
+                  <label
+                    htmlFor="pdf-upload"
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
+                      !canUseAI || pdfLoading || aiLoading
+                        ? "opacity-50 cursor-not-allowed border-muted bg-muted"
+                        : "border-primary/20 bg-primary/5 hover:bg-primary/10"
+                    }`}
+                  >
+                    <FileText className="h-4 w-4" />
+                    <span className="text-sm font-medium">
+                      {pdfLoading ? "Traitement du PDF..." : "Importer un PDF"}
+                    </span>
+                  </label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Astuce : si vous ne pouvez pas sélectionner de texte dans le PDF, il s'agit probablement d'un PDF scanné.
+                </p>
               </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-muted/30 px-2 text-muted-foreground">Ou</span>
-              </div>
-            </div>
 
-            <Textarea
-              value={aiText}
-              onChange={(e) => setAiText(e.target.value)}
-              rows={6}
-              className="bg-background"
-              placeholder={
-                !canUseAI
-                  ? "Fonctionnalité réservée aux abonnés. Passez à Starter ou Pro pour utiliser l'IA."
-                  : `Exemple :
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-muted/30 px-2 text-muted-foreground">Ou</span>
+                </div>
+              </div>
+
+              <Textarea
+                value={aiText}
+                onChange={(e) => setAiText(e.target.value)}
+                rows={6}
+                className="bg-background"
+                placeholder={
+                  !canUseAI
+                    ? "Fonctionnalité réservée aux abonnés. Passez à Starter ou Pro pour utiliser l'IA."
+                    : `Exemple :
 – un cours
 – un chapitre de livre
 – des notes prises en classe
 – un article
 
 Plus le texte est clair, meilleures seront les cartes.`
-              }
-              disabled={!canUseAI}
-            />
-            {!canUseAI ? (
-              <div className="rounded-lg border border-muted bg-muted/50 p-4 text-center text-sm text-muted-foreground">
-                Fonctionnalité réservée aux abonnés
-              </div>
-            ) : (
-              <Button
-                onClick={handleGenerateWithAI}
-                disabled={!canGenerateWithAI || pdfLoading}
-                className="w-full"
-                size="lg"
-              >
-                <Sparkles className="mr-2 h-4 w-4" />
-                {aiLoading || pdfLoading
-                  ? "Génération en cours…"
-                  : "Générer des cartes pour ce paquet"}
-              </Button>
-            )}
-          </div>
+                }
+                disabled={!canUseAI}
+              />
+              {!canUseAI ? (
+                <div className="rounded-lg border border-muted bg-muted/50 p-4 text-center text-sm text-muted-foreground">
+                  Fonctionnalité réservée aux abonnés
+                </div>
+              ) : (
+                <Button
+                  onClick={handleGenerateWithAI}
+                  disabled={!canGenerateWithAI || pdfLoading}
+                  className="w-full"
+                  size="lg"
+                >
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  {aiLoading || pdfLoading
+                    ? "Génération en cours…"
+                    : "Générer des cartes pour ce paquet"}
+                </Button>
+              )}
+            </div>
+          )}
 
           {/* Error state */}
           {(aiError || pdfError) && (
@@ -404,46 +559,142 @@ Plus le texte est clair, meilleures seront les cartes.`
             </div>
           )}
 
-          {/* Success state */}
-          {aiResult && (
+          {/* Success state after confirmation */}
+          {confirmedCount !== null && !generatedCards && (
             <div className="space-y-4">
-              {/* Success message */}
               <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-4">
                 <p className="text-sm font-medium text-green-700 dark:text-green-400">
-                  ✓ {aiResult.imported} cartes ont été ajoutées à ce paquet
+                  {confirmedCount} carte{confirmedCount > 1 ? "s ont été ajoutées" : " a été ajoutée"} à ce paquet
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Tu peux les modifier, les supprimer ou commencer à les réviser immédiatement.
                 </p>
               </div>
+              <Button
+                variant="outline"
+                onClick={() => setConfirmedCount(null)}
+                className="w-full"
+              >
+                Générer d'autres cartes
+              </Button>
+            </div>
+          )}
 
-              {/* Card previews - max 5 with scroll */}
+          {/* Preview state - cards generated but not confirmed */}
+          {generatedCards && (
+            <div className="space-y-4">
+              {/* Info banner */}
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-4">
+                <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
+                  {generatedCards.length} carte{generatedCards.length > 1 ? "s générées" : " générée"} - Sélectionnez celles à ajouter
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Validez les cartes que vous souhaitez conserver. Les cartes non validées seront ignorées.
+                </p>
+              </div>
+
+              {/* Global actions */}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={selectAll}
+                  className="flex-1"
+                >
+                  <CheckCheck className="mr-2 h-4 w-4" />
+                  Tout accepter
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={deselectAll}
+                  className="flex-1"
+                >
+                  <XCircle className="mr-2 h-4 w-4" />
+                  Tout refuser
+                </Button>
+              </div>
+
+              {/* Card list with selection */}
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  Aperçu des cartes générées
+                  {selectedIndices.size} / {generatedCards.length} carte{selectedIndices.size > 1 ? "s sélectionnées" : " sélectionnée"}
                 </p>
-                <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
-                  {aiResult.cards.slice(0, 5).map((card, index) => (
-                    <div
-                      key={index}
-                      className="rounded-lg border bg-card p-4 space-y-3"
-                    >
-                      <div>
-                        <p className="text-xs font-medium text-primary mb-1">Question</p>
-                        <p className="text-sm">{card.front}</p>
+                <div className="max-h-96 overflow-y-auto space-y-2 pr-1">
+                  {generatedCards.map((card, index) => {
+                    const isSelected = selectedIndices.has(index);
+                    return (
+                      <div
+                        key={index}
+                        className={`rounded-lg border p-4 space-y-3 transition-colors ${
+                          isSelected
+                            ? "border-green-500/50 bg-green-500/5"
+                            : "border-muted bg-card opacity-60"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 space-y-3">
+                            <div>
+                              <p className="text-xs font-medium text-primary mb-1">Question</p>
+                              <p className="text-sm">{card.front}</p>
+                            </div>
+                            <div className="border-t pt-3">
+                              <p className="text-xs font-medium text-muted-foreground mb-1">Réponse</p>
+                              <p className="text-sm text-muted-foreground">{card.back}</p>
+                            </div>
+                          </div>
+                          {/* Accept/Reject button */}
+                          <Button
+                            variant={isSelected ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => toggleCard(index)}
+                            className={`shrink-0 ${
+                              isSelected
+                                ? "bg-green-600 hover:bg-green-700"
+                                : "hover:border-destructive hover:text-destructive"
+                            }`}
+                          >
+                            {isSelected ? (
+                              <>
+                                <Check className="h-4 w-4" />
+                              </>
+                            ) : (
+                              <>
+                                <X className="h-4 w-4" />
+                              </>
+                            )}
+                          </Button>
+                        </div>
                       </div>
-                      <div className="border-t pt-3">
-                        <p className="text-xs font-medium text-muted-foreground mb-1">Réponse</p>
-                        <p className="text-sm text-muted-foreground">{card.back}</p>
-                      </div>
-                    </div>
-                  ))}
-                  {aiResult.cards.length > 5 && (
-                    <p className="text-xs text-center text-muted-foreground py-2">
-                      + {aiResult.cards.length - 5} autres cartes
-                    </p>
-                  )}
+                    );
+                  })}
                 </div>
+              </div>
+
+              {/* Confirm / Cancel actions */}
+              <div className="flex gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={resetPreview}
+                  disabled={confirmLoading}
+                  className="flex-1"
+                >
+                  Annuler
+                </Button>
+                <Button
+                  onClick={handleConfirmCards}
+                  disabled={selectedIndices.size === 0 || confirmLoading}
+                  className="flex-1"
+                >
+                  {confirmLoading ? (
+                    "Ajout en cours..."
+                  ) : (
+                    <>
+                      <Check className="mr-2 h-4 w-4" />
+                      Ajouter {selectedIndices.size} carte{selectedIndices.size > 1 ? "s" : ""}
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
           )}

@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
 
+  // Mark pdf-parse and pdfjs-dist as external packages to avoid webpack bundling issues
+  serverExternalPackages: ["pdf-parse", "pdfjs-dist"],
+
   webpack: (config) => {
     config.resolve.alias = {
       ...config.resolve.alias,

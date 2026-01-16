@@ -25,6 +25,7 @@ export {
   getDeckCardCounts,
   getAllDeckCounts,
   getAnkiCountsForDecks,
+  invalidateCardCaches,
   reviewCard,
   getCardsStudiedToday,
   getCurrentStreak,
