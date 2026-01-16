@@ -40,7 +40,7 @@ function invalidateDeckCaches(): void {
   allDeckCountsCache = null;
 }
 
-function invalidateCardCaches(): void {
+export function invalidateCardCaches(): void {
   allCardsCache = null;
   allDeckCountsCache = null;
   ankiCountsCache.clear();
