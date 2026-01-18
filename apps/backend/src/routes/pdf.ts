@@ -216,55 +216,112 @@ function parseCookies(cookieHeader: string | undefined): Map<string, string> {
   return cookies;
 }
 
-// POST /pdf/generate-cards
+// POST /pdf/import - Extract text from PDF (no AI generation)
+router.post("/import", upload.single("file"), async (req: Request, res: Response) => {
+  try {
+    console.log("[pdf/import] Request received");
+
+    // User is already authenticated by requireAuth middleware
+    const userId = (req as any).userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        code: "UNAUTHORIZED",
+        message: "Authentication required",
+      });
+    }
+
+    // Get file from multer
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        code: "NO_FILE",
+        message: "No file provided",
+      });
+    }
+
+    // Validate file type
+    if (
+      file.mimetype !== "application/pdf" &&
+      !file.originalname.toLowerCase().endsWith(".pdf")
+    ) {
+      return res.status(415).json({
+        success: false,
+        code: "INVALID_FILE_TYPE",
+        message: "Invalid file type. Only PDF files are supported.",
+      });
+    }
+
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      return res.status(413).json({
+        success: false,
+        code: "PDF_TOO_LARGE",
+        message: `PDF is too large. Maximum size: ${Math.round(MAX_FILE_SIZE / 1024 / 1024)} MB.`,
+      });
+    }
+
+    // Extract text from PDF
+    const extractionResult = await extractTextFromPdf(file.buffer);
+
+    if (!extractionResult.success) {
+      const statusMap: Record<PDFErrorCode, number> = {
+        PDF_NO_TEXT: 422,
+        PDF_ENCRYPTED: 422,
+        PDF_INVALID: 400,
+        PDF_PARSE_ERROR: 422,
+        PDF_TOO_LARGE: 413,
+      };
+      return res.status(statusMap[extractionResult.code] || 422).json({
+        success: false,
+        code: extractionResult.code,
+        message: extractionResult.message,
+      });
+    }
+
+    // Normalize extracted text
+    const normalizedText = normalizeText(extractionResult.text);
+
+    // Check if normalized text is sufficient
+    if (normalizedText.length < MIN_TEXT_LENGTH) {
+      return res.status(422).json({
+        success: false,
+        code: "PDF_NO_TEXT",
+        message: "Extracted text is too short. The PDF may not contain selectable text.",
+      });
+    }
+
+    // Success - return extracted text
+    console.log("[pdf/import] Success:", {
+      pages: extractionResult.pages,
+      textLength: normalizedText.length,
+    });
+
+    return res.json({
+      success: true,
+      text: normalizedText,
+      pages: extractionResult.pages,
+    });
+  } catch (error) {
+    console.error("[pdf/import] Unexpected error:", error);
+    return res.status(500).json({
+      success: false,
+      code: "INTERNAL_ERROR",
+      message: error instanceof Error ? error.message : "Failed to extract text from PDF",
+    });
+  }
+});
+
+// POST /pdf/generate-cards - Extract text from PDF and generate AI cards
 router.post("/generate-cards", upload.single("file"), async (req: Request, res: Response) => {
   try {
     console.log("[generate-cards-from-pdf] Request received");
 
-    // Try to get token from Authorization header first (for cross-domain prod)
-    let accessToken: string | null = null;
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      accessToken = authHeader.substring(7);
-    }
-
-    // Fallback to cookies if no Authorization header (for same-domain local dev)
-    if (!accessToken) {
-      const cookieHeader = req.headers.cookie;
-      const cookies = parseCookies(cookieHeader);
-      
-      for (const [name, value] of cookies.entries()) {
-        if (name.startsWith("sb-") && name.endsWith("-auth-token")) {
-          try {
-            const cookieValue = JSON.parse(value);
-            if (cookieValue.access_token) {
-              accessToken = cookieValue.access_token;
-              break;
-            }
-          } catch (e) {
-            console.error("[generate-cards-from-pdf] Failed to parse auth cookie:", e);
-          }
-        }
-      }
-    }
-
-    let userId: string | null = null;
-
-    if (accessToken) {
-      try {
-        // Decode JWT to extract and validate user ID
-        const parts = accessToken.split(".");
-        if (parts.length === 3) {
-          const payload = JSON.parse(Buffer.from(parts[1], "base64").toString());
-          const now = Math.floor(Date.now() / 1000);
-          if (payload.exp && payload.exp > now && payload.sub) {
-            userId = payload.sub;
-          }
-        }
-      } catch (e) {
-        console.error("[generate-cards-from-pdf] Failed to parse auth token:", e);
-      }
-    }
+    // User is already authenticated by requireAuth middleware
+    const userId = (req as any).userId;
 
     if (!userId) {
       return res.status(401).json({

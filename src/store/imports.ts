@@ -246,9 +246,23 @@ export async function generateCards(
   }
 
   try {
-    const response = await fetch("/api/generate-cards", {
+    // Get Supabase session for auth token
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      throw new Error("No Supabase session. Please log in again.");
+    }
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+
+    const response = await fetch(`${apiUrl}/generate/cards`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
       body: JSON.stringify({
         text: importDoc.text,
         deck_id: deckId,

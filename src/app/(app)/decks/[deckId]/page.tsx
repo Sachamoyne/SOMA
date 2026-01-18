@@ -169,6 +169,18 @@ export default function DeckOverviewPage() {
     setAiError(null);
 
     try {
+      // Get Supabase session for auth token
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        setAiError("No Supabase session. Please log in again.");
+        setConfirmLoading(false);
+        return;
+      }
+
       const selectedCards = generatedCards.filter((_, index) => selectedIndices.has(index));
 
       console.log("[handleConfirmCards] Sending request", {
@@ -177,11 +189,13 @@ export default function DeckOverviewPage() {
         selectedCards: selectedCards.map(c => ({ front: c.front.substring(0, 50) })),
       });
 
-      const response = await fetch("/api/confirm-cards", {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+
+      const response = await fetch(`${apiUrl}/generate/confirm`, {
         method: "POST",
-        credentials: "include",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           deck_id: String(deckId),
@@ -280,14 +294,12 @@ export default function DeckOverviewPage() {
       formData.append("deck_id", String(deckId));
       formData.append("language", "fr");
 
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
-      const backendKey = process.env.NEXT_PUBLIC_BACKEND_API_KEY || "";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 
-      const response = await fetch(`${backendUrl}/pdf/generate-cards`, {
+      const response = await fetch(`${apiUrl}/pdf/generate-cards`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.access_token}`,
-          "x-soma-backend-key": backendKey,
         },
         credentials: "include",
         body: formData,
@@ -373,11 +385,25 @@ export default function DeckOverviewPage() {
     resetPreview();
 
     try {
-      const response = await fetch("/api/generate-cards", {
+      // Get Supabase session for auth token
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        setAiError("No Supabase session. Please log in again.");
+        setAiLoading(false);
+        return;
+      }
+
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+
+      const response = await fetch(`${apiUrl}/generate/cards`, {
         method: "POST",
-        credentials: "include",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           deck_id: String(deckId),

@@ -51,6 +51,8 @@ async function callLLM(
 
   const systemPrompt = `Tu es un expert en création de flashcards pour la mémorisation efficace et l'apprentissage conceptuel.
 
+RÈGLE ABSOLUE : Return ONLY valid JSON. No text, no markdown, no explanation before or after.
+
 RÈGLES STRICTES DE SORTIE JSON :
 - Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans markdown, sans commentaires.
 - Le JSON DOIT respecter EXACTEMENT ce schéma, sans aucun champ supplémentaire :
@@ -118,21 +120,95 @@ Réponds UNIQUEMENT avec le JSON strict conforme au schéma, sans aucun texte su
       };
     }>;
   };
-  const content = data.choices?.[0]?.message?.content;
+  const rawContent = data.choices?.[0]?.message?.content;
 
-  if (!content) {
+  if (!rawContent) {
     throw new Error("No content in LLM response");
+  }
+
+  // LOG RAW OUTPUT BEFORE PARSING
+  console.error("[LLM] RAW_LLM_OUTPUT:", rawContent.substring(0, 500)); // Log first 500 chars for debugging
+
+  // Extract JSON defensively - find first valid JSON object
+  let jsonContent = rawContent.trim();
+  
+  // Remove markdown code blocks if present
+  if (jsonContent.startsWith("```json")) {
+    jsonContent = jsonContent.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+  } else if (jsonContent.startsWith("```")) {
+    jsonContent = jsonContent.replace(/^```\s*/, "").replace(/\s*```$/, "");
+  }
+
+  // Extract first JSON object if wrapped in text
+  const jsonMatch = jsonContent.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    jsonContent = jsonMatch[0];
+  } else {
+    throw new Error(`No JSON object found in LLM output. Raw output: ${rawContent.substring(0, 200)}`);
   }
 
   let parsed;
   try {
-    parsed = JSON.parse(content);
+    parsed = JSON.parse(jsonContent);
   } catch (e) {
-    throw new Error(`Failed to parse LLM JSON: ${e}`);
+    console.error("[LLM] JSON parse error:", e);
+    console.error("[LLM] Extracted JSON content:", jsonContent.substring(0, 500));
+    throw new Error(`Failed to parse LLM JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // Strict validation - rejects any extra fields
-  const validated = strictOutputSchema.parse(parsed);
+  // Validate schema - but be more forgiving for cards array
+  let validated;
+  try {
+    validated = strictOutputSchema.parse(parsed);
+  } catch (schemaError) {
+    // If schema validation fails, try to extract valid cards
+    console.error("[LLM] Schema validation failed:", schemaError);
+    console.error("[LLM] Parsed object keys:", Object.keys(parsed));
+    
+    // Attempt to extract valid cards from parsed object
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.cards)) {
+      const validCards = parsed.cards.filter((card: any) => {
+        return (
+          card &&
+          typeof card === "object" &&
+          typeof card.front === "string" &&
+          card.front.trim().length > 0 &&
+          typeof card.back === "string" &&
+          card.back.trim().length > 0
+        );
+      });
+
+      if (validCards.length >= 6) {
+        // If we have at least 6 valid cards, use them
+        console.warn(`[LLM] Using ${validCards.length} valid cards out of ${parsed.cards.length} after schema validation failure`);
+        validated = {
+          language: parsed.language || "fr",
+          title: parsed.title || "Deck",
+          cards: validCards.slice(0, 10), // Max 10 cards
+        };
+        
+        // Re-validate with relaxed schema (no strict mode)
+        const relaxedSchema = z.object({
+          language: z.enum(["fr", "en"]).default("fr"),
+          title: z.string().min(1).default("Deck"),
+          cards: z.array(
+            z.object({
+              front: z.string().min(1),
+              back: z.string().min(1),
+              tags: z.array(z.string()).optional(),
+              difficulty: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]).optional(),
+            })
+          ).min(6).max(10),
+        });
+        
+        validated = relaxedSchema.parse(validated);
+      } else {
+        throw new Error(`Only ${validCards.length} valid cards found (minimum 6 required). Schema error: ${schemaError}`);
+      }
+    } else {
+      throw new Error(`Invalid LLM output structure. Expected object with 'cards' array. Schema error: ${schemaError}`);
+    }
+  }
 
   // Additional validation: check for distinct concepts
   if (!hasDistinctConcepts(validated.cards)) {
@@ -405,17 +481,24 @@ export async function generateCardsPreview(
 
   // Call LLM with retry
   let result;
+  let lastError: Error | null = null;
+  
   try {
     result = await callLLM(truncatedText, false);
   } catch (error) {
+    console.error("[generateCardsPreview] First LLM call failed:", error);
+    lastError = error instanceof Error ? error : new Error(String(error));
+    
     try {
       result = await callLLM(truncatedText, true);
     } catch (retryError) {
+      console.error("[generateCardsPreview] Retry LLM call also failed:", retryError);
+      const retryErrorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      
       return {
         success: false,
         error: "INTERNAL_ERROR",
-        message:
-          "Failed to generate valid output after retry. The LLM response did not match the required schema exactly.",
+        message: `LLM output invalid – see logs. First error: ${lastError.message}. Retry error: ${retryErrorMessage}`,
         status: 500,
       };
     }
@@ -451,5 +534,155 @@ export async function generateCardsPreview(
     success: true,
     deckId,
     cards: cardPreviews,
+  };
+}
+
+export interface ConfirmCardsInput {
+  deckId: string;
+  userId: string;
+  cards: CardPreview[];
+}
+
+export interface ConfirmCardsResult {
+  success: true;
+  deckId: string;
+  imported: number;
+  cards: CardPreview[];
+}
+
+export type ConfirmCardsResponse = ConfirmCardsResult | GenerateCardsError;
+
+/**
+ * Confirm and insert selected cards into the database.
+ * This is called after user reviews and selects cards to keep.
+ */
+export async function confirmAndInsertCards(
+  input: ConfirmCardsInput
+): Promise<ConfirmCardsResponse> {
+  const { deckId, userId, cards } = input;
+
+  console.log("[confirmAndInsertCards] START", {
+    deckId,
+    userId,
+    cardsCount: cards?.length,
+  });
+
+  if (!cards || cards.length === 0) {
+    console.log("[confirmAndInsertCards] NO_CARDS - early return");
+    return {
+      success: false,
+      error: "NO_CARDS",
+      message: "No cards to insert",
+      status: 400,
+    };
+  }
+
+  const adminSupabase = getAdminSupabase();
+  if (!adminSupabase) {
+    console.log("[confirmAndInsertCards] No admin Supabase client");
+    return {
+      success: false,
+      error: "INTERNAL_ERROR",
+      message: "Supabase service key configuration is missing",
+      status: 500,
+    };
+  }
+
+  // Re-check quota with actual card count
+  console.log("[confirmAndInsertCards] Checking quota...");
+  const quotaCheck = await checkUserQuota(userId, cards.length);
+  if (!quotaCheck.canGenerate) {
+    console.log("[confirmAndInsertCards] Quota check failed:", quotaCheck.error);
+    return quotaCheck.error!;
+  }
+  console.log("[confirmAndInsertCards] Quota OK");
+
+  // Verify deck exists and belongs to user
+  console.log("[confirmAndInsertCards] Verifying deck...");
+  const { data: deck, error: deckError } = await adminSupabase
+    .from("decks")
+    .select("id, user_id")
+    .eq("id", deckId)
+    .single();
+
+  if (deckError || !deck) {
+    console.log("[confirmAndInsertCards] Deck not found:", deckError);
+    return {
+      success: false,
+      error: "DECK_NOT_FOUND",
+      message: "Deck non trouvé",
+      status: 404,
+    };
+  }
+
+  if (deck.user_id !== userId) {
+    console.log("[confirmAndInsertCards] Deck user_id mismatch:", {
+      deckUserId: deck.user_id,
+      requestUserId: userId,
+    });
+    return {
+      success: false,
+      error: "FORBIDDEN",
+      message: "Ce deck ne vous appartient pas",
+      status: 403,
+    };
+  }
+  console.log("[confirmAndInsertCards] Deck verified OK");
+
+  // Prepare cards for insert
+  const nowIso = new Date().toISOString();
+  const cardsToInsert = cards.map((card) => ({
+    user_id: userId,
+    deck_id: deckId,
+    front: card.front,
+    back: card.back,
+    type: "basic" as const,
+    state: "new" as const,
+    due_at: nowIso,
+  }));
+
+  console.log("[confirmAndInsertCards] Inserting cards:", {
+    count: cardsToInsert.length,
+    sample: cardsToInsert[0],
+  });
+
+  // Insert cards
+  const { data: insertedCards, error: insertError } = await adminSupabase
+    .from("cards")
+    .insert(cardsToInsert)
+    .select("id, front, back");
+
+  if (insertError) {
+    console.error("[confirmAndInsertCards] Insert FAILED:", insertError);
+    return {
+      success: false,
+      error: "INTERNAL_ERROR",
+      message: "Failed to insert cards into database",
+      status: 500,
+    };
+  }
+
+  console.log("[confirmAndInsertCards] Insert SUCCESS:", {
+    insertedCount: insertedCards?.length ?? 0,
+    insertedIds: insertedCards?.map(c => c.id),
+  });
+
+  // Increment quota ONLY after successful insertion
+  if (!quotaCheck.isFounderOrAdmin && quotaCheck.profile) {
+    const actualCardCount = insertedCards?.length || 0;
+    await adminSupabase
+      .from("profiles")
+      .update({
+        ai_cards_used_current_month:
+          (quotaCheck.profile.ai_cards_used_current_month || 0) + actualCardCount,
+      })
+      .eq("id", userId);
+  }
+
+  return {
+    success: true,
+    deckId,
+    imported: insertedCards?.length || 0,
+    cards,
   };
 }

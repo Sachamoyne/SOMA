@@ -5,51 +5,94 @@ dotenv.config();
 // Validate required environment variables IMMEDIATELY at startup
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const openaiApiKey = process.env.OPENAI_API_KEY;
 
-if (!supabaseUrl || !supabaseServiceKey) {
+if (!supabaseUrl || !supabaseServiceKey || !supabaseAnonKey) {
   console.error("[BACKEND] ❌ FATAL: Missing required Supabase environment variables");
   console.error("[BACKEND] Required variables:");
   console.error("[BACKEND]   - SUPABASE_URL:", supabaseUrl ? "SET" : "NOT SET");
   console.error("[BACKEND]   - SUPABASE_SERVICE_ROLE_KEY:", supabaseServiceKey ? "SET" : "NOT SET");
+  console.error("[BACKEND]   - SUPABASE_ANON_KEY:", supabaseAnonKey ? "SET" : "NOT SET");
   console.error("[BACKEND] Server will not start. Please configure these variables in Railway.");
   process.exit(1);
 }
 
+if (!openaiApiKey) {
+  console.error("[BACKEND] ❌ FATAL: Missing OPENAI_API_KEY");
+  console.error("[BACKEND] Server will not start. Please configure OPENAI_API_KEY in Railway.");
+  process.exit(1);
+}
+
 // Safe log: boolean only, NEVER log the actual key
-console.log("[BACKEND] ✅ Supabase configuration validated");
+console.log("[BACKEND] ✅ Configuration validated");
 console.log("[BACKEND]   - SUPABASE_URL: SET");
 console.log("[BACKEND]   - SUPABASE_SERVICE_ROLE_KEY: SET");
+console.log("[BACKEND]   - SUPABASE_ANON_KEY: SET");
+console.log("[BACKEND]   - OPENAI_API_KEY: SET");
 
 import express from "express";
 import cors from "cors";
-import { requireBackendKey } from "./middleware/auth";
+import { requireAuth } from "./middleware/auth";
 import ankiRouter from "./routes/anki";
 import pdfRouter from "./routes/pdf";
+import generateRouter from "./routes/generate";
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:3000",
-  credentials: true,
-}));
-app.use(express.json());
+// CORS: Whitelist production domains and localhost
+const allowedOrigins = [
+  "https://soma-edu.com",
+  "https://www.soma-edu.com",
+  "http://localhost:3000",
+  "http://localhost:3001",
+];
+
+// CORS middleware - MUST be before any auth middleware or routes
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, Postman, curl)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.warn(`[BACKEND] CORS blocked origin: ${origin}`);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    preflightContinue: false,
+    optionsSuccessStatus: 200,
+  })
+);
+
+// Explicitly handle OPTIONS requests (preflight) for all routes
+// This MUST be before requireAuth to allow preflight without authentication
+app.options("*", cors());
+
+// Body parser for JSON (but NOT for multipart/form-data - multer handles that)
+app.use(express.json({ limit: "50mb" })); // Support large file uploads
+app.use(express.urlencoded({ extended: true, limit: "50mb" })); // Support form data
 
 // Health check endpoint (no auth required)
 app.get("/health", (req, res) => {
   res.json({ status: "ok", service: "soma-backend" });
 });
 
-// Protected routes - require backend API key
-app.use("/anki", requireBackendKey, ankiRouter);
-app.use("/pdf", requireBackendKey, pdfRouter);
+// Protected routes - authentication via Supabase JWT in Authorization header
+app.use("/anki", requireAuth, ankiRouter);
+app.use("/pdf", requireAuth, pdfRouter);
+app.use("/generate", requireAuth, generateRouter);
 
 // Start server
 app.listen(PORT, () => {
   console.log(`[BACKEND] Server running on port ${PORT}`);
   console.log(`[BACKEND] Environment: ${process.env.NODE_ENV || "development"}`);
-  if (!process.env.BACKEND_API_KEY) {
-    console.warn("[BACKEND] ⚠️  BACKEND_API_KEY not set - allowing all requests in dev mode");
-  }
 });

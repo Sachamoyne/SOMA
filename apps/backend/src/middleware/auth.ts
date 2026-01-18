@@ -1,45 +1,97 @@
 import { Request, Response, NextFunction } from "express";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
 /**
- * Middleware to verify backend API key from header.
- * In dev, if BACKEND_API_KEY is not set, allows all requests with warning.
+ * Middleware to authenticate requests using Supabase JWT token.
+ * Validates the token via Supabase API and attaches user to req.user.
  */
-export function requireBackendKey(
+export async function requireAuth(
   req: Request,
   res: Response,
   next: NextFunction
-): void {
-  const expectedKey = process.env.BACKEND_API_KEY;
+): Promise<void> {
+  try {
+    // Extract token from Authorization header
+    const authHeader = req.headers.authorization;
 
-  // In dev, if no key is configured, allow with warning
-  if (!expectedKey) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        "[BACKEND AUTH] WARNING: BACKEND_API_KEY not set. Allowing request in dev mode."
-      );
-      next();
-      return;
-    } else {
-      console.error("[BACKEND AUTH] ERROR: BACKEND_API_KEY not set in production!");
-      res.status(500).json({
-        error: "Server configuration error",
-        details: "Backend API key is not configured",
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      console.warn("[AUTH] Missing or invalid Authorization header");
+      res.status(401).json({
+        error: "Unauthorized",
+        message: "Missing or invalid Authorization header",
       });
       return;
     }
-  }
 
-  // In production or when key is set, require it
-  const providedKey = req.header("x-soma-backend-key");
+    const token = authHeader.substring(7);
 
-  if (!providedKey || providedKey !== expectedKey) {
-    console.warn("[BACKEND AUTH] Invalid or missing API key");
-    res.status(401).json({
-      error: "Unauthorized",
-      details: "Invalid or missing backend API key",
+    if (!token) {
+      console.warn("[AUTH] Empty token");
+      res.status(401).json({
+        error: "Unauthorized",
+        message: "Empty token",
+      });
+      return;
+    }
+
+    // Verify Supabase configuration
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const anonKey = process.env.SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !anonKey) {
+      console.error("[AUTH] Missing Supabase configuration");
+      res.status(500).json({
+        error: "Internal Server Error",
+        message: "Server configuration error",
+      });
+      return;
+    }
+
+    // Create Supabase client with ANON_KEY for JWT verification (ES256)
+    // Service Role Key cannot properly verify ES256-signed JWTs
+    const supabaseAuth = createSupabaseClient(supabaseUrl, anonKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
     });
-    return;
-  }
 
-  next();
+    // Verify token via Supabase API using ANON_KEY client
+    let data, error;
+    try {
+      const result = await supabaseAuth.auth.getUser(token);
+      data = result.data;
+      error = result.error;
+    } catch (err) {
+      console.error("[AUTH] Exception during getUser():", err);
+      res.status(500).json({
+        error: "Internal Server Error",
+        message: "Authentication service error",
+      });
+      return;
+    }
+
+    // Refuse if error is non-null or data.user is null
+    if (error || !data?.user) {
+      console.warn("[AUTH] Token validation failed:", error?.message || "User is null");
+      res.status(401).json({
+        error: "Unauthorized",
+        message: error?.message || "Invalid or expired token",
+      });
+      return;
+    }
+
+    // Attach user to request
+    (req as any).user = data.user;
+    (req as any).userId = data.user.id;
+
+    // Continue to next middleware/route handler
+    next();
+  } catch (error) {
+    console.error("[AUTH] Unexpected error during authentication:", error);
+    res.status(500).json({
+      error: "Internal Server Error",
+      message: "Authentication failed",
+    });
+  }
 }
