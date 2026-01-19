@@ -281,42 +281,6 @@ export default function LoginClient() {
                 </div>
               )}
 
-              {mode === "signup" && (
-                <div className="flex items-start gap-3 p-3 rounded-lg bg-white/5 border border-white/10">
-                  <input
-                    type="checkbox"
-                    id="acceptTerms"
-                    checked={acceptedTerms}
-                    onChange={(e) => setAcceptedTerms(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-white/20 bg-white/10 text-primary focus:ring-2 focus:ring-white/40 cursor-pointer"
-                    required
-                  />
-                  <label htmlFor="acceptTerms" className="text-xs text-white/80 leading-relaxed cursor-pointer flex-1">
-                    J'accepte la{" "}
-                    <Link
-                      href="/confidentialite"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline hover:text-white transition-colors"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      Politique de Confidentialité
-                    </Link>
-                    {" "}et les{" "}
-                    <Link
-                      href="/cgu-cgv"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline hover:text-white transition-colors"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      CGU/CGV
-                    </Link>
-                    {" "}de {APP_NAME}.
-                  </label>
-                </div>
-              )}
-
               <Button
                 type="submit"
                 className="w-full h-11 text-sm font-semibold bg-white text-slate-900 hover:bg-white/90"
