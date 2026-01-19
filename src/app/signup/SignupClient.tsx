@@ -122,11 +122,20 @@ export default function SignupClient() {
         return;
       }
 
+      // Get effective plan (free or paid plan from verified session)
+      const effectivePlan = plan === "free" ? "free" : paidPlan;
+      
+      // Create Supabase account ONLY
+      // Store plan_name in user_metadata to retrieve it after email confirmation
+      // NO profile creation here - profile will be created in /onboarding/confirm
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/onboarding/confirm`,
+          data: {
+            plan_name: effectivePlan || "free", // Store plan in user_metadata
+          },
         },
       });
 
@@ -142,36 +151,16 @@ export default function SignupClient() {
         return;
       }
 
-      // If email confirmation is required
+      // If email confirmation is required, show success message
+      // Profile will be created in /onboarding/confirm after email confirmation
       if (!user.email_confirmed_at) {
         setSuccess("Compte créé. Veuillez confirmer votre email pour continuer.");
         return;
       }
 
-      // For paid plans, associate the Stripe session with the new user account
-      if (paidPlan && sessionId) {
-        try {
-          const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-          if (backendUrl) {
-            const associateResponse = await fetch(`${backendUrl}/stripe/associate-session`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ sessionId }),
-            });
-
-            if (!associateResponse.ok) {
-              console.error("[signup] Failed to associate session:", await associateResponse.text());
-              // Continue anyway - webhook might process it later
-            }
-          }
-        } catch (err) {
-          console.error("[signup] Error associating session:", err);
-          // Continue anyway - webhook might process it later
-        }
-      }
-
-      // After signup, redirect to app
-      router.replace("/decks");
+      // If email is already confirmed (should not happen in production with email confirmation enabled)
+      // Still redirect to /onboarding/confirm to create profile and proceed
+      router.replace("/onboarding/confirm");
       router.refresh();
     } catch (err: any) {
       const authError = mapAuthError(err, "signup");

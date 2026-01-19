@@ -51,43 +51,67 @@ export default function OnboardingConfirmClient() {
           return;
         }
 
-        // Get user profile to determine next step
-        const { data: profile, error: profileError } = await supabase
+        // Get plan_name from user_metadata (stored during signup)
+        const planName = (user.user_metadata?.plan_name as string) || "free";
+
+        // Check if profile already exists (idempotent check)
+        const { data: existingProfile } = await supabase
           .from("profiles")
           .select("plan_name, subscription_status")
           .eq("id", user.id)
           .single();
 
-        if (profileError) {
-          console.error("[onboarding/confirm] Failed to fetch profile:", profileError);
-          // Profile might not exist yet - create it with free plan
-          await supabase.from("profiles").upsert(
-            {
-              id: user.id,
-              email: user.email || "",
-              role: "user",
-              plan: "free",
-            },
-            { onConflict: "id", ignoreDuplicates: false }
-          );
-          // Redirect to app (free plan by default)
-          router.replace("/decks");
-          router.refresh();
-          return;
+        // Profile does NOT exist → create it NOW (after email confirmation)
+        if (!existingProfile) {
+          // Determine subscription_status based on plan
+          const subscriptionStatus = planName === "free" ? "active" : "pending";
+
+          const { error: profileError } = await supabase
+            .from("profiles")
+            .upsert(
+              {
+                id: user.id,
+                email: user.email || "",
+                role: "user",
+                plan: "free", // Default plan, will be updated by webhook for paid plans
+                plan_name: planName,
+                subscription_status: subscriptionStatus,
+              },
+              {
+                onConflict: "id",
+                ignoreDuplicates: false,
+              }
+            );
+
+          if (profileError) {
+            console.error("[onboarding/confirm] Failed to create profile:", profileError);
+            setError("Failed to create profile. Please try again.");
+            setStatus("error");
+            return;
+          }
+
+          // Profile created successfully - proceed to next step
         }
 
-        const planName = (profile as any)?.plan_name;
+        // Profile exists or was just created - get current status
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("plan_name, subscription_status")
+          .eq("id", user.id)
+          .single();
+
+        const currentPlanName = (profile as any)?.plan_name || planName;
         const subscriptionStatus = (profile as any)?.subscription_status;
 
         // FREE plan → redirect to app
-        if (!planName || planName === "free") {
+        if (!currentPlanName || currentPlanName === "free") {
           router.replace("/decks");
           router.refresh();
           return;
         }
 
         // STARTER/PRO plan → check subscription status
-        if (planName === "starter" || planName === "pro") {
+        if (currentPlanName === "starter" || currentPlanName === "pro") {
           // If subscription is already active → redirect to app
           if (subscriptionStatus === "active") {
             router.replace("/decks");
@@ -97,20 +121,20 @@ export default function OnboardingConfirmClient() {
 
           // If subscription is pending → trigger Stripe checkout
           if (subscriptionStatus === "pending") {
-            await triggerCheckout(planName, user.id);
+            await triggerCheckout(currentPlanName, user.id);
             return;
           }
 
-          // No subscription status → create profile with pending status and trigger checkout
+          // No subscription status or unexpected state → set to pending and trigger checkout
           await supabase
             .from("profiles")
             .update({
-              plan_name: planName,
+              plan_name: currentPlanName,
               subscription_status: "pending",
             })
             .eq("id", user.id);
 
-          await triggerCheckout(planName, user.id);
+          await triggerCheckout(currentPlanName, user.id);
           return;
         }
 

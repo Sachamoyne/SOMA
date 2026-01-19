@@ -66,12 +66,17 @@ export default function OnboardingClient() {
         return;
       }
 
-      // Step 1: Create Supabase account
+      // Step 1: Create Supabase account ONLY
+      // Store plan_name in user_metadata to retrieve it after email confirmation
+      // NO profile creation here - profile will be created in /onboarding/confirm
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/onboarding/confirm`,
+          data: {
+            plan_name: plan, // Store plan in user_metadata
+          },
         },
       });
 
@@ -87,73 +92,17 @@ export default function OnboardingClient() {
         return;
       }
 
-      // Step 2: Create profile with pending subscription status (even if email not confirmed)
-      // This ensures we preserve the plan choice after email confirmation
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .upsert(
-          {
-            id: user.id,
-            email: user.email || email,
-            role: "user",
-            plan: "free", // Default plan, will be updated by webhook
-            plan_name: plan,
-            subscription_status: "pending",
-          },
-          {
-            onConflict: "id",
-            ignoreDuplicates: false,
-          }
-        );
-
-      if (profileError) {
-        console.error("[onboarding] Failed to create profile:", profileError);
-        setError("Erreur lors de la création du profil. Veuillez réessayer.");
-        return;
-      }
-
-      // If email confirmation is required, redirect will happen via email link
+      // If email confirmation is required, show success message
+      // Profile will be created in /onboarding/confirm after email confirmation
       if (!user.email_confirmed_at) {
         setSuccess("Compte créé. Veuillez confirmer votre email pour continuer. Vous serez redirigé automatiquement vers le paiement après confirmation.");
         return;
       }
 
-      // Step 3: Initiate Stripe checkout with userId (only if email already confirmed)
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-      if (!backendUrl) {
-        setError("Configuration backend manquante. Veuillez réessayer plus tard.");
-        return;
-      }
-
-      // Get auth token for authenticated checkout request
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        setError("Erreur d'authentification. Veuillez réessayer.");
-        return;
-      }
-
-      const checkoutResponse = await fetch(`${backendUrl}/stripe/checkout`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ plan }),
-      });
-
-      const checkoutData = (await checkoutResponse.json()) as {
-        url?: string;
-        error?: string;
-      };
-
-      if (!checkoutResponse.ok || !checkoutData.url) {
-        throw new Error(
-          checkoutData.error || `Checkout failed (HTTP ${checkoutResponse.status})`
-        );
-      }
-
-      // Step 4: Redirect to Stripe Checkout
-      window.location.href = checkoutData.url;
+      // If email is already confirmed (should not happen in production with email confirmation enabled)
+      // Still redirect to /onboarding/confirm to create profile and proceed
+      router.replace("/onboarding/confirm");
+      router.refresh();
     } catch (err: any) {
       const authError = mapAuthError(err, "signup");
       setError(authError.message || "Erreur lors de la création du compte.");
