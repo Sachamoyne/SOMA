@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -73,9 +73,16 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
 
   useEffect(() => {
+    // Allow deep-linking to signup flow: /login?mode=signup&plan=starter
+    const desiredMode = searchParams.get("mode");
+    if (desiredMode === "signup") {
+      setMode("signup");
+    }
+
     // If a valid session already exists, redirect away from /login
     // to the main authenticated dashboard.
     let cancelled = false;
@@ -87,6 +94,20 @@ export default function LoginPage() {
         } = await supabase.auth.getUser();
 
         if (!cancelled && user) {
+          const plan = searchParams.get("plan");
+          const next = searchParams.get("next");
+          // Resume pricing → checkout flow if a plan was selected.
+          if (plan === "starter" || plan === "pro") {
+            router.replace(`/pricing?plan=${plan}&checkout=1`);
+            router.refresh();
+            return;
+          }
+          // Respect explicit next if provided
+          if (next && next.startsWith("/")) {
+            router.replace(next);
+            router.refresh();
+            return;
+          }
           // After login, main entry point is the deck list
           router.replace("/decks");
           router.refresh();
@@ -101,7 +122,7 @@ export default function LoginPage() {
     return () => {
       cancelled = true;
     };
-  }, [router, supabase]);
+  }, [router, supabase, searchParams]);
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
@@ -111,10 +132,22 @@ export default function LoginPage() {
     try {
       console.log("[LoginPage] Starting Google OAuth sign in...");
       
+      const plan = searchParams.get("plan");
+      const next = searchParams.get("next");
+      const qs = new URLSearchParams();
+      if (plan) qs.set("plan", plan);
+      if (next) qs.set("next", next);
+      // If we have a plan, force resume to pricing checkout
+      if (plan === "starter" || plan === "pro") {
+        qs.set("next", `/pricing?plan=${plan}&checkout=1`);
+      }
+
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: `${window.location.origin}/auth/callback${
+            qs.toString() ? `?${qs.toString()}` : ""
+          }`,
         },
       });
 
@@ -174,6 +207,18 @@ export default function LoginPage() {
         // User is authenticated and confirmed - ensure profile exists
         await ensureProfile(supabase, user.id, user.email);
 
+        const plan = searchParams.get("plan");
+        const next = searchParams.get("next");
+        if (plan === "starter" || plan === "pro") {
+          router.push(`/pricing?plan=${plan}&checkout=1`);
+          router.refresh();
+          return;
+        }
+        if (next && next.startsWith("/")) {
+          router.push(next);
+          router.refresh();
+          return;
+        }
         // Redirect to decks
         router.push("/decks");
         router.refresh();
@@ -216,6 +261,18 @@ export default function LoginPage() {
         }
 
         // Email already confirmed (shouldn't happen normally, but handle it)
+        const plan = searchParams.get("plan");
+        const next = searchParams.get("next");
+        if (plan === "starter" || plan === "pro") {
+          router.push(`/pricing?plan=${plan}&checkout=1`);
+          router.refresh();
+          return;
+        }
+        if (next && next.startsWith("/")) {
+          router.push(next);
+          router.refresh();
+          return;
+        }
         router.push("/decks");
         router.refresh();
       }

@@ -1,15 +1,120 @@
 "use client";
 
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Playfair_Display } from "next/font/google";
 import { APP_NAME } from "@/lib/brand";
 import { useTranslation } from "@/i18n";
 import { LanguageToggle } from "@/components/LanguageToggle";
+import { createClient } from "@/lib/supabase/client";
 
 const playfair = Playfair_Display({ subsets: ["latin"] });
 
 export default function PricingPage() {
   const { t } = useTranslation();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const supabase = useMemo(() => createClient(), []);
+
+  const [userId, setUserId] = useState<string | null>(null);
+  const [currentPlan, setCurrentPlan] = useState<"free" | "starter" | "pro">("free");
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
+  const [loadingCheckout, setLoadingCheckout] = useState<"starter" | "pro" | null>(null);
+  const autoCheckoutRan = useRef(false);
+
+  const requestedPlan = searchParams.get("plan");
+  const requestedCheckout = searchParams.get("checkout");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadUserAndPlan() {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (cancelled) return;
+        setUserId(user?.id ?? null);
+
+        if (!user) return;
+
+        // Pull current subscription plan from profile (webhook updates plan_name)
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("plan_name, subscription_status, plan")
+          .eq("id", user.id)
+          .single();
+
+        if (cancelled) return;
+
+        const planName = (profile as any)?.plan_name as string | null | undefined;
+        const planFallback = (profile as any)?.plan as string | null | undefined;
+        const resolved =
+          planName === "starter" || planName === "pro" || planName === "free"
+            ? planName
+            : planFallback === "starter" || planFallback === "pro" || planFallback === "free"
+              ? planFallback
+              : "free";
+
+        setCurrentPlan(resolved as "free" | "starter" | "pro");
+        setSubscriptionStatus((profile as any)?.subscription_status ?? null);
+      } catch (e) {
+        console.error("[pricing] Failed to load user/profile:", e);
+      }
+    }
+
+    void loadUserAndPlan();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
+
+  const startCheckout = async (plan: "starter" | "pro") => {
+    setLoadingCheckout(plan);
+    try {
+      const response = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan }),
+      });
+      const data = (await response.json()) as { url?: string; error?: string };
+      if (!response.ok || !data.url) {
+        throw new Error(data.error || `Checkout failed (HTTP ${response.status})`);
+      }
+      window.location.href = data.url;
+    } catch (e) {
+      console.error("[pricing] Checkout error:", e);
+      alert(e instanceof Error ? e.message : "Erreur lors du paiement");
+    } finally {
+      setLoadingCheckout(null);
+    }
+  };
+
+  const handleSubscribeClick = async (plan: "starter" | "pro") => {
+    // Disable only if user is already on this plan and active
+    const isAlreadyOnPlan = userId && currentPlan === plan && subscriptionStatus === "active";
+    if (isAlreadyOnPlan) return;
+
+    if (!userId) {
+      router.push(`/signup?plan=${plan}`);
+      return;
+    }
+    await startCheckout(plan);
+  };
+
+  // Auto-resume checkout after signup/login: /pricing?plan=starter&checkout=1
+  useEffect(() => {
+    if (autoCheckoutRan.current) return;
+    if (!userId) return;
+    if (requestedCheckout !== "1") return;
+    if (requestedPlan !== "starter" && requestedPlan !== "pro") return;
+
+    autoCheckoutRan.current = true;
+    void startCheckout(requestedPlan);
+    // Note: we intentionally do not router.replace() here because we leave the page to Stripe.
+  }, [userId, requestedCheckout, requestedPlan]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -91,10 +196,15 @@ export default function PricingPage() {
                 <li>{t("pricing.starterFeature3")}</li>
               </ul>
               <button
-                disabled
-                className="mt-6 cursor-not-allowed rounded-full border border-white/20 bg-transparent px-4 py-2 text-sm text-white/50 opacity-60"
+                onClick={() => handleSubscribeClick("starter")}
+                disabled={Boolean(userId && currentPlan === "starter" && subscriptionStatus === "active") || loadingCheckout !== null}
+                className={`mt-6 rounded-full border border-white/20 bg-transparent px-4 py-2 text-sm transition ${
+                  userId && currentPlan === "starter" && subscriptionStatus === "active"
+                    ? "cursor-not-allowed text-white/50 opacity-60"
+                    : "text-white/70 hover:bg-white/5"
+                }`}
               >
-                {t("pricing.subscribe")}
+                {loadingCheckout === "starter" ? "…" : t("pricing.subscribe")}
               </button>
             </div>
 
@@ -119,10 +229,15 @@ export default function PricingPage() {
                 <li>{t("pricing.proFeature3")}</li>
               </ul>
               <button
-                disabled
-                className="mt-6 cursor-not-allowed rounded-full bg-white/60 px-4 py-2 text-sm font-medium text-slate-900 opacity-60"
+                onClick={() => handleSubscribeClick("pro")}
+                disabled={Boolean(userId && currentPlan === "pro" && subscriptionStatus === "active") || loadingCheckout !== null}
+                className={`mt-6 rounded-full px-4 py-2 text-sm font-medium transition ${
+                  userId && currentPlan === "pro" && subscriptionStatus === "active"
+                    ? "cursor-not-allowed bg-white/60 text-slate-900 opacity-60"
+                    : "bg-white/90 text-slate-900 hover:bg-white"
+                }`}
               >
-                {t("pricing.subscribe")}
+                {loadingCheckout === "pro" ? "…" : t("pricing.subscribe")}
               </button>
             </div>
 
