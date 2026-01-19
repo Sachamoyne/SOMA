@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Eye, EyeOff } from "lucide-react";
 import { APP_NAME } from "@/lib/brand";
 import { BrandLogo } from "@/components/BrandLogo";
-import { Playfair_Display } from "next/font/google";
 import { useTranslation } from "@/i18n";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { mapAuthError } from "@/lib/auth-errors";
@@ -37,8 +36,6 @@ export default function SignupClient() {
     planParam === "free" || planParam === "starter" || planParam === "pro"
       ? planParam
       : null;
-
-  const playfair = Playfair_Display({ subsets: ["latin"] });
 
   useEffect(() => {
     // Enforce plan choice before account creation
@@ -137,7 +134,7 @@ export default function SignupClient() {
             <div className="flex flex-col items-center gap-4 text-center">
               <BrandLogo size={48} iconSize={28} />
               <div>
-                <h1 className={`${playfair.className} text-2xl font-semibold text-white`}>
+                <h1 className="text-2xl font-semibold text-white font-serif">
                   {t("auth.createAccount", { appName: APP_NAME })}
                 </h1>
                 <p className="mt-2 text-xs text-white/60">
