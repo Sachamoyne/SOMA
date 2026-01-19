@@ -75,14 +75,6 @@ export default function LoginClient() {
   const supabase = createClient();
 
   useEffect(() => {
-    // Prevent direct access: /login must be reached from pricing.
-    const from = searchParams.get("from");
-    if (from !== "pricing") {
-      router.replace("/pricing");
-      router.refresh();
-      return;
-    }
-
     // If a valid session already exists, redirect away from /login
     // to the main authenticated dashboard.
     let cancelled = false;
@@ -108,7 +100,7 @@ export default function LoginClient() {
     return () => {
       cancelled = true;
     };
-  }, [router, supabase, searchParams]);
+  }, [router, supabase]);
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
