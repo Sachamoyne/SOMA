@@ -11,6 +11,13 @@ export async function requireAuth(
   next: NextFunction
 ): Promise<void> {
   try {
+    // CORS preflight requests never include Authorization headers.
+    // Always allow OPTIONS to succeed without authentication.
+    if (req.method === "OPTIONS") {
+      res.sendStatus(204);
+      return;
+    }
+
     // Extract token from Authorization header
     const authHeader = req.headers.authorization;
 
