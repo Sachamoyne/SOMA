@@ -28,6 +28,10 @@ function isPaidPlan(profile: ProfileSnapshot | null | undefined): boolean {
     profile?.plan === "starter" || profile?.plan === "pro";
 }
 
+function isStripeForbidden(profile: ProfileSnapshot | null | undefined): boolean {
+  return profile?.subscription_status === "active";
+}
+
 function shouldRedirectToStripe(profile: ProfileSnapshot | null | undefined): boolean {
   if (!profile) return false;
   return profile.onboarding_status === "pending_payment" && profile.subscription_status !== "active";
@@ -89,8 +93,11 @@ export default function LoginClient() {
           } : null;
           const isPaid = isPaidPlan(profileSnapshot);
 
-          // Guard: paid users with active subscription should never see Stripe again
-          if (profileSnapshot?.subscription_status === "active") {
+          console.log("[LOGIN] profile", profileSnapshot);
+          console.log("[LOGIN] subscription_status", profileSnapshot?.subscription_status);
+          console.log("[LOGIN] STRIPE FORBIDDEN =", isStripeForbidden(profileSnapshot));
+
+          if (isStripeForbidden(profileSnapshot)) {
             router.replace("/decks");
             router.refresh();
             return;
@@ -120,6 +127,12 @@ export default function LoginClient() {
 
             // Try to redirect to checkout
             try {
+              if (isStripeForbidden(profileSnapshot)) {
+                console.error("[BUG] STRIPE TRIGGERED WITH ACTIVE SUBSCRIPTION", profileSnapshot);
+                router.replace("/decks");
+                router.refresh();
+                return;
+              }
               const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
               const checkoutPlan = profileSnapshot?.plan_name || profileSnapshot?.plan;
               if (backendUrl && (checkoutPlan === "starter" || checkoutPlan === "pro")) {
@@ -277,8 +290,11 @@ export default function LoginClient() {
       } : null;
       const isPaid = isPaidPlan(profileSnapshot);
 
-      // Guard: paid users with active subscription should never see Stripe again
-      if (profileSnapshot?.subscription_status === "active") {
+      console.log("[LOGIN] profile", profileSnapshot);
+      console.log("[LOGIN] subscription_status", profileSnapshot?.subscription_status);
+      console.log("[LOGIN] STRIPE FORBIDDEN =", isStripeForbidden(profileSnapshot));
+
+      if (isStripeForbidden(profileSnapshot)) {
         router.push("/decks");
         router.refresh();
         return;
@@ -308,6 +324,12 @@ export default function LoginClient() {
 
         // Try to redirect to checkout
         try {
+          if (isStripeForbidden(profileSnapshot)) {
+            console.error("[BUG] STRIPE TRIGGERED WITH ACTIVE SUBSCRIPTION", profileSnapshot);
+            router.push("/decks");
+            router.refresh();
+            return;
+          }
           const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
           const checkoutPlan = profileSnapshot?.plan_name || profileSnapshot?.plan;
           if (backendUrl && (checkoutPlan === "starter" || checkoutPlan === "pro")) {
