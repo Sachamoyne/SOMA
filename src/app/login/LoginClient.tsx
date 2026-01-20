@@ -76,15 +76,15 @@ export default function LoginClient() {
 
           // RULE 1: subscription_status === "active" → unconditional access to /decks
           if (subscriptionStatus === "active") {
-            router.replace("/decks");
             router.refresh();
+            router.replace("/decks");
             return;
           }
 
           // RULE 2: subscription_status === "pending_payment" → /pricing (user must click to pay)
           if (subscriptionStatus === "pending_payment") {
-            router.replace("/pricing");
             router.refresh();
+            router.replace("/pricing");
             return;
           }
 
@@ -96,8 +96,8 @@ export default function LoginClient() {
           }
 
           // Free user with confirmed email → access to /decks
-          router.replace("/decks");
           router.refresh();
+          router.replace("/decks");
         }
       } catch (error) {
         // Catch all errors - don't let them bubble up as "loader failed"
@@ -187,6 +187,11 @@ export default function LoginClient() {
         return;
       }
 
+      // CRITICAL: Wait for session to be fully persisted in cookies
+      // This prevents "loader failed" errors on first login after email confirmation
+      await supabase.auth.getSession();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
       // Get profile - subscription_status is the SINGLE SOURCE OF TRUTH
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
@@ -210,15 +215,15 @@ export default function LoginClient() {
 
       // RULE 1: subscription_status === "active" → unconditional access to /decks
       if (subscriptionStatus === "active") {
-        router.push("/decks");
         router.refresh();
+        router.push("/decks");
         return;
       }
 
       // RULE 2: subscription_status === "pending_payment" → /pricing (user must click to pay)
       if (subscriptionStatus === "pending_payment") {
-        router.push("/pricing");
         router.refresh();
+        router.push("/pricing");
         return;
       }
 
@@ -230,8 +235,8 @@ export default function LoginClient() {
       }
 
       // Free user with confirmed email → access to /decks
-      router.push("/decks");
       router.refresh();
+      router.push("/decks");
     } catch (err) {
       // Catch all unexpected errors
       console.error("[LoginPage] Unexpected error during login:", err);
