@@ -118,49 +118,11 @@ export default function LoginClient() {
             return;
           }
 
-          // RULE #2: Paid user with pending_payment - redirect to Stripe checkout
+          // RULE #2: Paid user with pending_payment - redirect to /pricing for explicit user action
+          // CRITICAL: Stripe must NEVER be triggered automatically during login/mount/guard
           if (shouldRedirectToStripe(profileSnapshot)) {
-            // If email not confirmed, show message but don't block payment flow
-            if (!user.email_confirmed_at) {
-              setPaidEmailPending(true);
-            }
-
-            // Try to redirect to checkout
-            try {
-              if (isStripeForbidden(profileSnapshot)) {
-                console.error("[BUG] STRIPE TRIGGERED WITH ACTIVE SUBSCRIPTION", profileSnapshot);
-                router.replace("/decks");
-                router.refresh();
-                return;
-              }
-              const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-              const checkoutPlan = profileSnapshot?.plan_name || profileSnapshot?.plan;
-              if (backendUrl && (checkoutPlan === "starter" || checkoutPlan === "pro")) {
-                const { data: { session } } = await supabase.auth.getSession();
-                const checkoutResponse = await fetch(`${backendUrl}/stripe/checkout`, {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-                  },
-                  body: JSON.stringify({ plan: checkoutPlan, userId: user.id }),
-                });
-
-                const checkoutData = (await checkoutResponse.json()) as {
-                  url?: string;
-                  error?: string;
-                };
-
-                if (checkoutResponse.ok && checkoutData.url) {
-                  window.location.href = checkoutData.url;
-                  return;
-                }
-              }
-            } catch (err) {
-              console.error("[login] Failed to trigger checkout:", err);
-            }
-
-            setError("Votre paiement n'a pas encore été finalisé. Veuillez compléter le paiement.");
+            router.replace("/pricing");
+            router.refresh();
             return;
           }
 
@@ -315,49 +277,11 @@ export default function LoginClient() {
         return;
       }
 
-      // RULE #2: Paid user with pending_payment - redirect to Stripe checkout
+      // RULE #2: Paid user with pending_payment - redirect to /pricing for explicit user action
+      // CRITICAL: Stripe must NEVER be triggered automatically during login/mount/guard
       if (shouldRedirectToStripe(profileSnapshot)) {
-        // Show email pending message if applicable
-        if (!user.email_confirmed_at) {
-          setPaidEmailPending(true);
-        }
-
-        // Try to redirect to checkout
-        try {
-          if (isStripeForbidden(profileSnapshot)) {
-            console.error("[BUG] STRIPE TRIGGERED WITH ACTIVE SUBSCRIPTION", profileSnapshot);
-            router.push("/decks");
-            router.refresh();
-            return;
-          }
-          const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-          const checkoutPlan = profileSnapshot?.plan_name || profileSnapshot?.plan;
-          if (backendUrl && (checkoutPlan === "starter" || checkoutPlan === "pro")) {
-            const { data: { session } } = await supabase.auth.getSession();
-            const checkoutResponse = await fetch(`${backendUrl}/stripe/checkout`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-              },
-              body: JSON.stringify({ plan: checkoutPlan, userId: user.id }),
-            });
-
-            const checkoutData = (await checkoutResponse.json()) as {
-              url?: string;
-              error?: string;
-            };
-
-            if (checkoutResponse.ok && checkoutData.url) {
-              window.location.href = checkoutData.url;
-              return;
-            }
-          }
-        } catch (err) {
-          console.error("[login] Failed to trigger checkout:", err);
-        }
-
-        setError("Votre paiement n'a pas encore été finalisé. Veuillez compléter le paiement.");
+        router.push("/pricing");
+        router.refresh();
         return;
       }
 
