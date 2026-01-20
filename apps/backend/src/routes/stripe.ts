@@ -159,7 +159,7 @@ router.post("/checkout", async (req: Request, res: Response) => {
         },
       ],
       allow_promotion_codes: true,
-      success_url: `${frontendUrl}/decks?checkout=success`,
+      success_url: `${frontendUrl}/post-checkout`,
       cancel_url: `${frontendUrl}/pricing`,
       subscription_data: {
         metadata: {
