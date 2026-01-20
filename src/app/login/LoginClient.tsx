@@ -92,34 +92,38 @@ export default function LoginClient() {
 
           const onboardingStatus = profile?.onboarding_status as string | null | undefined;
           const planName = profile?.plan_name as string | null | undefined;
-          const isPaid = planName === "starter" || planName === "pro";
+          const plan = profile?.plan as string | null | undefined;
 
-          // PAID user with email not confirmed: show specific message
-          if (isPaid && !user.email_confirmed_at) {
-            setPaidEmailPending(true);
-            // Don't sign out - just show the message
-            return;
-          }
+          // CRITICAL: Check both plan and plan_name to determine if user is paid
+          const isPaid = planName === "starter" || planName === "pro" || plan === "starter" || plan === "pro";
 
-          // FREE requires email confirmation
-          if (!isPaid && !user.email_confirmed_at) {
-            await supabase.auth.signOut();
-            setError("Veuillez confirmer votre email avant de vous connecter. Vérifiez votre boîte de réception.");
-            return;
-          }
-
-          // Active onboarding -> go to app
+          // RULE #1: If onboarding_status === "active", user can access the app
+          // This is the PRIMARY check - payment was validated by Stripe webhook
           if (onboardingStatus === "active") {
+            // For paid users without email confirmation, they can still access
+            // For free users, email confirmation is required
+            if (!isPaid && !user.email_confirmed_at) {
+              await supabase.auth.signOut();
+              setError("Veuillez confirmer votre email avant de vous connecter. Vérifiez votre boîte de réception.");
+              return;
+            }
             router.replace("/decks");
             router.refresh();
             return;
           }
 
-          // Paid pending payment -> send to checkout
-          if (onboardingStatus === "pending_payment" && isPaid) {
+          // RULE #2: Paid user with pending_payment - redirect to Stripe checkout
+          if (onboardingStatus === "pending_payment") {
+            // If email not confirmed, show message but don't block payment flow
+            if (!user.email_confirmed_at) {
+              setPaidEmailPending(true);
+            }
+
+            // Try to redirect to checkout
             try {
               const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-              if (backendUrl) {
+              const checkoutPlan = planName || plan || "starter";
+              if (backendUrl && (checkoutPlan === "starter" || checkoutPlan === "pro")) {
                 const { data: { session } } = await supabase.auth.getSession();
                 const checkoutResponse = await fetch(`${backendUrl}/stripe/checkout`, {
                   method: "POST",
@@ -127,7 +131,7 @@ export default function LoginClient() {
                     "Content-Type": "application/json",
                     ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
                   },
-                  body: JSON.stringify({ plan: planName, userId: user.id }),
+                  body: JSON.stringify({ plan: checkoutPlan, userId: user.id }),
                 });
 
                 const checkoutData = (await checkoutResponse.json()) as {
@@ -143,10 +147,26 @@ export default function LoginClient() {
             } catch (err) {
               console.error("[login] Failed to trigger checkout:", err);
             }
+
+            setError("Votre paiement n'a pas encore été finalisé. Veuillez compléter le paiement.");
+            return;
           }
 
-          // Otherwise, keep the user on /login with a clear message
-          setError("Votre compte n'est pas encore activé. Veuillez finaliser le paiement.");
+          // RULE #3: No profile or unknown status - likely needs to go through pricing
+          if (!profile) {
+            setError("Aucun profil trouvé. Veuillez vous inscrire via la page Pricing.");
+            return;
+          }
+
+          // RULE #4: Free user without email confirmation
+          if (!user.email_confirmed_at) {
+            await supabase.auth.signOut();
+            setError("Veuillez confirmer votre email avant de vous connecter. Vérifiez votre boîte de réception.");
+            return;
+          }
+
+          // Fallback: unknown state
+          setError("État du compte non reconnu. Veuillez contacter le support.");
         }
       } catch (error) {
         console.error("[LoginPage] Failed to check existing session", error);
@@ -227,45 +247,38 @@ export default function LoginClient() {
 
       const onboardingStatus = profile?.onboarding_status as string | null | undefined;
       const planName = profile?.plan_name as string | null | undefined;
-      const isPaid = planName === "starter" || planName === "pro";
+      const plan = profile?.plan as string | null | undefined;
 
-      // PAID user with email not confirmed: show specific message but don't block
-      if (isPaid && !user.email_confirmed_at) {
-        // If onboarding is active (payment done), they can access the app
-        if (onboardingStatus === "active") {
-          router.push("/decks");
-          router.refresh();
+      // CRITICAL: Check both plan and plan_name to determine if user is paid
+      const isPaid = planName === "starter" || planName === "pro" || plan === "starter" || plan === "pro";
+
+      // RULE #1: If onboarding_status === "active", user can access the app
+      // This is the PRIMARY check - payment was validated by Stripe webhook
+      if (onboardingStatus === "active") {
+        // For paid users, email confirmation is NOT required
+        // For free users, email confirmation IS required
+        if (!isPaid && !user.email_confirmed_at) {
+          await supabase.auth.signOut();
+          setError("Veuillez confirmer votre email avant de vous connecter. Vérifiez votre boîte de réception.");
           return;
         }
-        // Payment pending - show message
-        setPaidEmailPending(true);
-        return;
-      }
-
-      // FREE requires email confirmation
-      if (!isPaid && !user.email_confirmed_at) {
-        await supabase.auth.signOut();
-        setError("Veuillez confirmer votre email avant de vous connecter. Vérifiez votre boîte de réception.");
-        return;
-      }
-
-      // Ensure profile exists for free users (fallback)
-      if (!isPaid) {
-        await ensureProfileForFreeUser(supabase, user.id, user.email);
-      }
-
-      // Active onboarding -> access app
-      if (onboardingStatus === "active") {
         router.push("/decks");
         router.refresh();
         return;
       }
 
-      // If paid onboarding pending payment, trigger checkout automatically
-      if (onboardingStatus === "pending_payment" && isPaid) {
+      // RULE #2: Paid user with pending_payment - redirect to Stripe checkout
+      if (onboardingStatus === "pending_payment") {
+        // Show email pending message if applicable
+        if (!user.email_confirmed_at) {
+          setPaidEmailPending(true);
+        }
+
+        // Try to redirect to checkout
         try {
           const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-          if (backendUrl) {
+          const checkoutPlan = planName || plan || "starter";
+          if (backendUrl && (checkoutPlan === "starter" || checkoutPlan === "pro")) {
             const { data: { session } } = await supabase.auth.getSession();
             const checkoutResponse = await fetch(`${backendUrl}/stripe/checkout`, {
               method: "POST",
@@ -273,7 +286,7 @@ export default function LoginClient() {
                 "Content-Type": "application/json",
                 ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
               },
-              body: JSON.stringify({ plan: planName, userId: user.id }),
+              body: JSON.stringify({ plan: checkoutPlan, userId: user.id }),
             });
 
             const checkoutData = (await checkoutResponse.json()) as {
@@ -289,9 +302,34 @@ export default function LoginClient() {
         } catch (err) {
           console.error("[login] Failed to trigger checkout:", err);
         }
+
+        setError("Votre paiement n'a pas encore été finalisé. Veuillez compléter le paiement.");
+        return;
       }
 
-      setError("Votre compte n'est pas encore activé. Veuillez finaliser le paiement.");
+      // RULE #3: No profile - ensure one exists for free users
+      if (!profile) {
+        await ensureProfileForFreeUser(supabase, user.id, user.email);
+        // Re-check after profile creation
+        if (!user.email_confirmed_at) {
+          await supabase.auth.signOut();
+          setError("Veuillez confirmer votre email avant de vous connecter. Vérifiez votre boîte de réception.");
+          return;
+        }
+        router.push("/decks");
+        router.refresh();
+        return;
+      }
+
+      // RULE #4: Free user without email confirmation
+      if (!user.email_confirmed_at) {
+        await supabase.auth.signOut();
+        setError("Veuillez confirmer votre email avant de vous connecter. Vérifiez votre boîte de réception.");
+        return;
+      }
+
+      // Fallback: unknown state
+      setError("État du compte non reconnu. Veuillez contacter le support.");
     } catch (err) {
       const authError = mapAuthError(err, "signin");
       setError(authError.message || t("auth.errorOccurred"));

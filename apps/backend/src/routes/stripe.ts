@@ -243,28 +243,74 @@ export async function handleStripeWebhook(req: Request, res: Response) {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    // Activate onboarding + set plan fields correctly.
-    // CRITICAL: Both `plan` and `plan_name` must be set to the paid plan.
-    // This overwrites any incorrect values (e.g., plan="free" from signup).
-    const updatePayload: Record<string, unknown> = {
+    // Get user email from Supabase auth for profile creation
+    const { data: authUser } = await supabase.auth.admin.getUserById(supabaseUserId);
+    const userEmail = authUser?.user?.email || session.customer_details?.email || "";
+
+    // CRITICAL: Validate planName - must be starter or pro for paid checkout
+    let finalPlan: Plan = "starter"; // Default fallback
+    if (planName === "starter" || planName === "pro") {
+      finalPlan = planName;
+    } else {
+      console.warn(`[STRIPE/WEBHOOK] Invalid or missing plan_name in session metadata: ${planName}`);
+      // Try to get plan from subscription metadata as fallback
+      const subscriptionId = session.subscription as string | null;
+      if (subscriptionId) {
+        try {
+          const stripe = getStripe();
+          const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+          const subPlan = subscription.metadata?.plan_name as Plan | undefined;
+          if (subPlan === "starter" || subPlan === "pro") {
+            finalPlan = subPlan;
+            console.log(`[STRIPE/WEBHOOK] Found plan in subscription metadata: ${subPlan}`);
+          }
+        } catch (err) {
+          console.error("[STRIPE/WEBHOOK] Failed to retrieve subscription:", err);
+        }
+      }
+    }
+
+    console.log(`[STRIPE/WEBHOOK] Activating user ${supabaseUserId} with plan: ${finalPlan}`);
+
+    // Get existing profile to preserve important fields (stripe_customer_id, role)
+    const { data: existingProfile } = await supabase
+      .from("profiles")
+      .select("stripe_customer_id, role")
+      .eq("id", supabaseUserId)
+      .single();
+
+    // Preserve privileged roles (founder/admin) - never overwrite them
+    const privilegedRoles = ["founder", "admin"];
+    const existingRole = existingProfile?.role as string | undefined;
+    const preserveRole = existingRole && privilegedRoles.includes(existingRole);
+
+    // CRITICAL: Use UPSERT to create/update profile.
+    // This ensures paid users always get the correct plan set.
+    // The webhook is the SINGLE SOURCE OF TRUTH for paid plan activation.
+    const profileData = {
+      id: supabaseUserId,
+      email: userEmail,
+      role: preserveRole ? existingRole : "user",
+      plan: finalPlan,
+      plan_name: finalPlan,
       onboarding_status: "active",
       subscription_status: "active",
+      ...(existingProfile?.stripe_customer_id ? { stripe_customer_id: existingProfile.stripe_customer_id } : {}),
     };
-    if (planName === "starter" || planName === "pro") {
-      updatePayload.plan = planName;
-      updatePayload.plan_name = planName;
-    }
 
-    const { error: updateError } = await supabase
+    const { error: upsertError } = await supabase
       .from("profiles")
-      .update(updatePayload)
-      .eq("id", supabaseUserId);
+      .upsert(profileData, {
+        onConflict: "id",
+        ignoreDuplicates: false  // Force update even if exists
+      });
 
-    if (updateError) {
-      console.error("[STRIPE/WEBHOOK] Failed to update profile:", updateError);
-      return res.status(500).send("Failed to update profile");
+    if (upsertError) {
+      console.error("[STRIPE/WEBHOOK] Failed to upsert profile:", upsertError);
+      return res.status(500).send("Failed to upsert profile");
     }
 
+    console.log(`[STRIPE/WEBHOOK] Successfully activated user ${supabaseUserId} with plan ${finalPlan}`);
     return res.json({ received: true });
   } catch (error) {
     console.error("[STRIPE/WEBHOOK] Error:", error);
