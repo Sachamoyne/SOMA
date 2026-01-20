@@ -19,28 +19,49 @@ const playfair = Playfair_Display({ subsets: ["latin"] });
 /**
  * Ensures a profile exists for FREE users only (idempotent).
  * PAID users get their profile from Stripe webhook - do not create here.
- * CRITICAL: Never overwrite privileged roles (founder/admin).
+ * CRITICAL:
+ * - Never overwrite existing profiles
+ * - Never write plan/plan_name for paid users
+ * - Only INSERT if profile truly doesn't exist
  */
 async function ensureProfileForFreeUser(
   supabase: ReturnType<typeof createClient>,
   userId: string,
-  userEmail: string | undefined
+  userEmail: string | undefined,
+  userMetadata?: Record<string, unknown>
 ): Promise<void> {
   try {
-    // Check if profile already exists
-    const { data: existingProfile } = await supabase
-      .from("profiles")
-      .select("id, role, plan_name, onboarding_status")
-      .eq("id", userId)
-      .single();
+    // CRITICAL: Check user metadata - if they signed up for a paid plan, DO NOT create profile
+    // The webhook will handle it
+    const metaPlanName = userMetadata?.plan_name as string | undefined;
+    const metaOnboardingStatus = userMetadata?.onboarding_status as string | undefined;
 
-    // If profile exists, do nothing (preserve paid profiles from webhook)
-    if (existingProfile?.id) {
+    if (metaPlanName === "starter" || metaPlanName === "pro" || metaOnboardingStatus === "pending_payment") {
+      console.log("[LoginPage] User signed up for paid plan - skipping ensureProfile (webhook handles this)");
       return;
     }
 
-    // Only create profile for users without one (fallback for free users)
-    // This should rarely happen as signup creates profiles
+    // Check if profile already exists
+    const { data: existingProfile, error: fetchError } = await supabase
+      .from("profiles")
+      .select("id, role, plan, plan_name, onboarding_status")
+      .eq("id", userId)
+      .single();
+
+    // If profile exists with ANY data, do nothing - preserve it
+    if (existingProfile?.id) {
+      console.log("[LoginPage] Profile already exists - preserving existing data");
+      return;
+    }
+
+    // If error is NOT "no rows" (PGRST116), something went wrong - don't create
+    if (fetchError && fetchError.code !== "PGRST116") {
+      console.error("[LoginPage] Error fetching profile:", fetchError);
+      return;
+    }
+
+    // Only create profile for users without one AND who are definitely FREE
+    console.log("[LoginPage] Creating FREE profile for user:", userId);
     await supabase.from("profiles").insert({
       id: userId,
       email: userEmail || "",
@@ -80,22 +101,41 @@ export default function LoginClient() {
       try {
         const {
           data: { user },
+          error: userError,
         } = await supabase.auth.getUser();
+
+        // Handle auth errors gracefully - don't show "loader failed"
+        if (userError) {
+          console.log("[LoginPage] No active session or auth error:", userError.message);
+          // This is normal for users who aren't logged in - don't show error
+          return;
+        }
 
         if (!cancelled && user) {
           // Get profile to check onboarding status and plan
-          const { data: profile } = await supabase
+          const { data: profile, error: profileError } = await supabase
             .from("profiles")
             .select("onboarding_status, plan_name, plan")
             .eq("id", user.id)
             .single();
 
+          // Handle profile fetch errors gracefully
+          if (profileError && profileError.code !== "PGRST116") {
+            console.error("[LoginPage] Profile fetch error:", profileError);
+            // Don't show error to user, just let them log in normally
+          }
+
           const onboardingStatus = profile?.onboarding_status as string | null | undefined;
           const planName = profile?.plan_name as string | null | undefined;
           const plan = profile?.plan as string | null | undefined;
 
+          // Also check user metadata for plan info (in case profile hasn't been updated yet)
+          const metaPlanName = user.user_metadata?.plan_name as string | undefined;
+
           // CRITICAL: Check both plan and plan_name to determine if user is paid
-          const isPaid = planName === "starter" || planName === "pro" || plan === "starter" || plan === "pro";
+          const isPaid = planName === "starter" || planName === "pro" ||
+                         plan === "starter" || plan === "pro" ||
+                         metaPlanName === "starter" || metaPlanName === "pro";
 
           // RULE #1: If onboarding_status === "active", user can access the app
           // This is the PRIMARY check - payment was validated by Stripe webhook
@@ -122,7 +162,7 @@ export default function LoginClient() {
             // Try to redirect to checkout
             try {
               const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-              const checkoutPlan = planName || plan || "starter";
+              const checkoutPlan = planName || plan || metaPlanName || "starter";
               if (backendUrl && (checkoutPlan === "starter" || checkoutPlan === "pro")) {
                 const { data: { session } } = await supabase.auth.getSession();
                 const checkoutResponse = await fetch(`${backendUrl}/stripe/checkout`, {
@@ -152,8 +192,13 @@ export default function LoginClient() {
             return;
           }
 
-          // RULE #3: No profile or unknown status - likely needs to go through pricing
+          // RULE #3: No profile - check if paid user waiting for webhook
           if (!profile) {
+            // Check user metadata - if they signed up for paid plan, webhook should create profile
+            if (isPaid || metaPlanName === "starter" || metaPlanName === "pro") {
+              setError("Votre profil est en cours de création. Veuillez patienter quelques instants et réessayer.");
+              return;
+            }
             setError("Aucun profil trouvé. Veuillez vous inscrire via la page Pricing.");
             return;
           }
@@ -169,7 +214,9 @@ export default function LoginClient() {
           setError("État du compte non reconnu. Veuillez contacter le support.");
         }
       } catch (error) {
-        console.error("[LoginPage] Failed to check existing session", error);
+        // Catch all errors - don't let them bubble up as "loader failed"
+        console.error("[LoginPage] Failed to check existing session:", error);
+        // Don't set error for session check failures - just let user try to log in
       }
     }
 
@@ -226,7 +273,24 @@ export default function LoginClient() {
         password,
       });
 
+      // Handle specific Supabase auth errors with clear messages
       if (signInError) {
+        console.log("[LoginPage] Sign in error:", signInError.message, signInError.status);
+
+        // Check for specific error types
+        if (signInError.message?.includes("Email not confirmed") ||
+            signInError.message?.includes("email_not_confirmed")) {
+          setError("Veuillez confirmer votre email avant de vous connecter. Vérifiez votre boîte de réception (et les spams).");
+          return;
+        }
+
+        if (signInError.message?.includes("Invalid login credentials") ||
+            signInError.status === 400) {
+          setError("Email ou mot de passe incorrect. Veuillez vérifier vos identifiants.");
+          return;
+        }
+
+        // Generic auth error handling
         const authError = mapAuthError(signInError, "signin");
         setError(authError.message);
         return;
@@ -238,19 +302,30 @@ export default function LoginClient() {
         return;
       }
 
+      // Get user metadata for paid plan detection
+      const userMetadata = user.user_metadata || {};
+      const metaPlanName = userMetadata.plan_name as string | undefined;
+
       // Check profile status
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("onboarding_status, plan_name, plan")
         .eq("id", user.id)
         .single();
 
+      // Handle profile fetch error gracefully
+      if (profileError && profileError.code !== "PGRST116") {
+        console.error("[LoginPage] Profile fetch error:", profileError);
+      }
+
       const onboardingStatus = profile?.onboarding_status as string | null | undefined;
       const planName = profile?.plan_name as string | null | undefined;
       const plan = profile?.plan as string | null | undefined;
 
-      // CRITICAL: Check both plan and plan_name to determine if user is paid
-      const isPaid = planName === "starter" || planName === "pro" || plan === "starter" || plan === "pro";
+      // CRITICAL: Check both plan, plan_name AND user metadata to determine if user is paid
+      const isPaid = planName === "starter" || planName === "pro" ||
+                     plan === "starter" || plan === "pro" ||
+                     metaPlanName === "starter" || metaPlanName === "pro";
 
       // RULE #1: If onboarding_status === "active", user can access the app
       // This is the PRIMARY check - payment was validated by Stripe webhook
@@ -277,7 +352,7 @@ export default function LoginClient() {
         // Try to redirect to checkout
         try {
           const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-          const checkoutPlan = planName || plan || "starter";
+          const checkoutPlan = planName || plan || metaPlanName || "starter";
           if (backendUrl && (checkoutPlan === "starter" || checkoutPlan === "pro")) {
             const { data: { session } } = await supabase.auth.getSession();
             const checkoutResponse = await fetch(`${backendUrl}/stripe/checkout`, {
@@ -307,9 +382,18 @@ export default function LoginClient() {
         return;
       }
 
-      // RULE #3: No profile - ensure one exists for free users
+      // RULE #3: No profile - check if this is a paid user waiting for webhook
       if (!profile) {
-        await ensureProfileForFreeUser(supabase, user.id, user.email);
+        // If user signed up for paid plan, their profile should be created by webhook
+        // DON'T create a free profile for them - it would overwrite the paid plan
+        if (isPaid) {
+          setError("Votre profil est en cours de création. Veuillez patienter quelques instants et réessayer.");
+          return;
+        }
+
+        // Only ensure profile for definitely-free users
+        await ensureProfileForFreeUser(supabase, user.id, user.email, userMetadata);
+
         // Re-check after profile creation
         if (!user.email_confirmed_at) {
           await supabase.auth.signOut();
@@ -331,8 +415,10 @@ export default function LoginClient() {
       // Fallback: unknown state
       setError("État du compte non reconnu. Veuillez contacter le support.");
     } catch (err) {
+      // Catch all unexpected errors
+      console.error("[LoginPage] Unexpected error during login:", err);
       const authError = mapAuthError(err, "signin");
-      setError(authError.message || t("auth.errorOccurred"));
+      setError(authError.message || "Une erreur est survenue. Veuillez réessayer.");
     } finally {
       setLoading(false);
     }
