@@ -285,8 +285,8 @@ export async function handleStripeWebhook(req: Request, res: Response) {
     const preserveRole = existingRole && privilegedRoles.includes(existingRole);
 
     const quotaLimitByPlan: Record<Plan, number> = {
-      starter: 800,
-      pro: 2500,
+      starter: 300,
+      pro: 1000,
     };
 
     const targetMonthlyLimit = quotaLimitByPlan[finalPlan];

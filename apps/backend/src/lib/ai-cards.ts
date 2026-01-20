@@ -414,8 +414,8 @@ async function checkUserQuota(userId: string, cardCount: number = 10): Promise<{
           error: "QUOTA_EXCEEDED",
           message:
             plan === "starter"
-              ? "You've reached your monthly limit of 800 AI cards. Upgrade to Pro for 2,500 cards/month."
-              : "You've reached your monthly limit of 2,500 AI cards. Your quota will reset at the beginning of next month.",
+              ? "You've reached your monthly limit of 300 AI cards. Upgrade to Pro for 1,000 cards/month."
+              : "You've reached your monthly limit of 1,000 AI cards. Your quota will reset at the beginning of next month.",
           plan: plan,
           used: used,
           limit: limit,

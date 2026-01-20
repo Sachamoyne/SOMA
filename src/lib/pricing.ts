@@ -14,14 +14,14 @@ export interface QuotaInfo {
 
 export const PLAN_LIMITS: Record<Plan, number> = {
   free: 0,
-  starter: 800,
-  pro: 2500,
+  starter: 300,
+  pro: 1000,
 };
 
 export const PLAN_PRICES: Record<Plan, number> = {
   free: 0,
-  starter: 8,
-  pro: 15,
+  starter: 4.99,
+  pro: 9.99,
 };
 
 /**
