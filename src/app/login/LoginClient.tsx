@@ -28,34 +28,31 @@ async function ensureProfile(
   userEmail: string | undefined
 ): Promise<void> {
   try {
-    // Check if profile already exists and has privileged role
+    // Create a FREE profile only if missing (do not overwrite paid profiles)
     const { data: existingProfile } = await supabase
       .from("profiles")
-      .select("role")
+      .select("id, role")
       .eq("id", userId)
       .single();
+
+    if (existingProfile?.id) {
+      return;
+    }
 
     // Preserve privileged roles (founder/admin) - never overwrite them
     const privilegedRoles = ["founder", "admin"];
     const existingRole = existingProfile?.role;
     const shouldPreserveRole = existingRole && privilegedRoles.includes(existingRole);
 
-    await supabase
-      .from("profiles")
-      .upsert(
-        {
-          id: userId,
-          email: userEmail || "",
-          // CRITICAL: Only set role to "user" if profile doesn't exist or doesn't have privileged role
-          // This prevents overwriting "founder" or "admin" roles
-          ...(shouldPreserveRole ? { role: existingRole } : { role: "user" }),
-          plan: "free",
-        },
-        {
-          onConflict: "id",
-          ignoreDuplicates: false,
-        }
-      );
+    await supabase.from("profiles").insert({
+      id: userId,
+      email: userEmail || "",
+      ...(shouldPreserveRole ? { role: existingRole } : { role: "user" }),
+      plan: "free",
+      plan_name: "free",
+      onboarding_status: "active",
+      subscription_status: "active",
+    });
   } catch (error) {
     // Log but don't throw - authentication should not fail due to profile creation
     console.error("[LoginPage] Failed to ensure profile:", error);
@@ -86,53 +83,67 @@ export default function LoginClient() {
         } = await supabase.auth.getUser();
 
         if (!cancelled && user) {
-          // Check if user has pending subscription
+          // Gate access based on onboarding_status:
+          // - FREE: requires email confirmed + onboarding_status active
+          // - PAID: onboarding_status active is enough (email confirmation is non-blocking)
           const { data: profile } = await supabase
             .from("profiles")
-            .select("subscription_status, plan_name")
+            .select("onboarding_status, plan_name")
             .eq("id", user.id)
             .single();
 
-          const subscriptionStatus = (profile as any)?.subscription_status;
-          const planName = (profile as any)?.plan_name;
+          const onboardingStatus = (profile as any)?.onboarding_status as string | null | undefined;
+          const planName = (profile as any)?.plan_name as string | null | undefined;
 
-          // If subscription is pending, trigger Stripe checkout automatically
-          if (subscriptionStatus === "pending" && (planName === "starter" || planName === "pro")) {
+          // FREE requires email confirmation
+          if ((planName === "free" || !planName) && !user.email_confirmed_at) {
+            await supabase.auth.signOut();
+            setError("Veuillez confirmer votre email avant de vous connecter. Vérifiez votre boîte de réception.");
+            return;
+          }
+
+          // Active onboarding -> go to app
+          if (onboardingStatus === "active") {
+            router.replace("/decks");
+            router.refresh();
+            return;
+          }
+
+          // Paid pending payment -> send to checkout
+          if (
+            onboardingStatus === "pending_payment" &&
+            (planName === "starter" || planName === "pro")
+          ) {
             try {
               const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
               if (backendUrl) {
                 const { data: { session } } = await supabase.auth.getSession();
-                if (session?.access_token) {
-                  const checkoutResponse = await fetch(`${backendUrl}/stripe/checkout`, {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${session.access_token}`,
-                    },
-                    body: JSON.stringify({ plan: planName }),
-                  });
+                const checkoutResponse = await fetch(`${backendUrl}/stripe/checkout`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+                  },
+                  body: JSON.stringify({ plan: planName, userId: user.id }),
+                });
 
-                  const checkoutData = (await checkoutResponse.json()) as {
-                    url?: string;
-                    error?: string;
-                  };
+                const checkoutData = (await checkoutResponse.json()) as {
+                  url?: string;
+                  error?: string;
+                };
 
-                  if (checkoutResponse.ok && checkoutData.url) {
-                    // Redirect to Stripe Checkout
-                    window.location.href = checkoutData.url;
-                    return; // Don't redirect to /decks yet
-                  }
+                if (checkoutResponse.ok && checkoutData.url) {
+                  window.location.href = checkoutData.url;
+                  return;
                 }
               }
             } catch (err) {
               console.error("[login] Failed to trigger checkout:", err);
-              // Continue to /decks anyway
             }
           }
 
-          // After login, main entry point is the deck list
-          router.replace("/decks");
-          router.refresh();
+          // Otherwise, keep the user on /login with a clear message
+          setError("Votre compte n'est pas encore activé. Veuillez finaliser le paiement.");
         }
       } catch (error) {
         console.error("[LoginPage] Failed to check existing session", error);
@@ -210,59 +221,66 @@ export default function LoginClient() {
         return;
       }
 
-      if (!user.email_confirmed_at) {
+      await ensureProfile(supabase, user.id, user.email);
+
+      // Check onboarding status to decide access
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("onboarding_status, plan_name")
+        .eq("id", user.id)
+        .single();
+
+      const onboardingStatus = (profile as any)?.onboarding_status as string | null | undefined;
+      const planName = (profile as any)?.plan_name as string | null | undefined;
+
+      // FREE requires email confirmation
+      if ((planName === "free" || !planName) && !user.email_confirmed_at) {
+        await supabase.auth.signOut();
         setError("Veuillez confirmer votre email avant de vous connecter. Vérifiez votre boîte de réception.");
         return;
       }
 
-      await ensureProfile(supabase, user.id, user.email);
+      // Paid: access as soon as payment activates onboarding_status (email confirmation is non-blocking)
+      if (onboardingStatus === "active") {
+        router.push("/decks");
+        router.refresh();
+        return;
+      }
 
-      // Check if user has pending subscription (account created but payment not completed)
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("subscription_status, plan_name")
-        .eq("id", user.id)
-        .single();
-
-      const subscriptionStatus = (profile as any)?.subscription_status;
-      const planName = (profile as any)?.plan_name;
-
-      // If subscription is pending, trigger Stripe checkout automatically
-      if (subscriptionStatus === "pending" && (planName === "starter" || planName === "pro")) {
+      // If paid onboarding pending payment, trigger checkout automatically
+      if (
+        onboardingStatus === "pending_payment" &&
+        (planName === "starter" || planName === "pro")
+      ) {
         try {
           const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
           if (backendUrl) {
             const { data: { session } } = await supabase.auth.getSession();
-            if (session?.access_token) {
-              const checkoutResponse = await fetch(`${backendUrl}/stripe/checkout`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${session.access_token}`,
-                },
-                body: JSON.stringify({ plan: planName }),
-              });
+            const checkoutResponse = await fetch(`${backendUrl}/stripe/checkout`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+              },
+              body: JSON.stringify({ plan: planName, userId: user.id }),
+            });
 
-              const checkoutData = (await checkoutResponse.json()) as {
-                url?: string;
-                error?: string;
-              };
+            const checkoutData = (await checkoutResponse.json()) as {
+              url?: string;
+              error?: string;
+            };
 
-              if (checkoutResponse.ok && checkoutData.url) {
-                // Redirect to Stripe Checkout
-                window.location.href = checkoutData.url;
-                return; // Don't redirect to /decks yet
-              }
+            if (checkoutResponse.ok && checkoutData.url) {
+              window.location.href = checkoutData.url;
+              return;
             }
           }
         } catch (err) {
           console.error("[login] Failed to trigger checkout:", err);
-          // Continue to /decks anyway
         }
       }
 
-      router.push("/decks");
-      router.refresh();
+      setError("Votre compte n'est pas encore activé. Veuillez finaliser le paiement.");
     } catch (err: any) {
       // Fallback for unexpected errors
       const authError = mapAuthError(err, "signin");

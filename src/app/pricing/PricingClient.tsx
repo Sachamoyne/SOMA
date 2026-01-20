@@ -67,39 +67,11 @@ export default function PricingClient() {
     };
   }, [supabase]);
 
-  const startCheckout = async (plan: "starter" | "pro") => {
-    setLoadingCheckout(plan);
-    try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-      if (!backendUrl) {
-        throw new Error("Backend URL not configured");
-      }
-
-      const response = await fetch(`${backendUrl}/stripe/checkout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
-      });
-      const data = (await response.json()) as { url?: string; error?: string };
-      if (!response.ok || !data.url) {
-        throw new Error(data.error || `Checkout failed (HTTP ${response.status})`);
-      }
-      window.location.href = data.url;
-    } catch (e) {
-      console.error("[pricing] Checkout error:", e);
-      alert(e instanceof Error ? e.message : "Erreur lors du paiement");
-    } finally {
-      setLoadingCheckout(null);
-    }
-  };
-
-  const handleSubscribeClick = async (plan: "starter" | "pro") => {
-    // Disable only if user is already on this plan and active
+  // All CTA go to /signup?plan=...
+  const handleSubscribeClick = (plan: "starter" | "pro") => {
     const isAlreadyOnPlan = userId && currentPlan === plan && subscriptionStatus === "active";
     if (isAlreadyOnPlan) return;
-
-    // For Starter/Pro: redirect to onboarding page (signup → payment flow)
-    router.push(`/onboarding?plan=${plan}`);
+    router.push(`/signup?plan=${plan}`);
   };
 
   return (

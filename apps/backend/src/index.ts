@@ -67,7 +67,7 @@ import { requireAuth } from "./middleware/auth";
 import ankiRouter from "./routes/anki";
 import pdfRouter from "./routes/pdf";
 import generateRouter from "./routes/generate";
-import stripeRouter from "./routes/stripe";
+import stripeRouter, { handleStripeWebhook } from "./routes/stripe";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -102,6 +102,10 @@ app.options("/pdf/*", (req, res) => {
   res.sendStatus(204);
 });
 
+// Stripe webhook MUST receive raw body for signature verification (no auth)
+// IMPORTANT: this must be registered BEFORE express.json()
+app.post("/stripe/webhook", express.raw({ type: "application/json" }), handleStripeWebhook);
+
 // Body parser for JSON (but NOT for multipart/form-data - multer handles that)
 app.use(express.json({ limit: "50mb" })); // Support large file uploads
 app.use(express.urlencoded({ extended: true, limit: "50mb" })); // Support form data
@@ -111,8 +115,10 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", service: "soma-backend" });
 });
 
+// Stripe checkout is public OR authenticated (route handles userId/auth internally)
+app.use("/stripe", stripeRouter);
+
 // Protected routes - authentication via Supabase JWT in Authorization header
-app.use("/stripe", requireAuth, stripeRouter); // Checkout now requires auth (account before payment)
 app.use("/anki", requireAuth, ankiRouter);
 app.use("/pdf", requireAuth, pdfRouter);
 app.use("/generate", requireAuth, generateRouter);
