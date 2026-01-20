@@ -89,6 +89,13 @@ export default function LoginClient() {
           } : null;
           const isPaid = isPaidPlan(profileSnapshot);
 
+          // Guard: paid users with active subscription should never see Stripe again
+          if (profileSnapshot?.subscription_status === "active") {
+            router.replace("/decks");
+            router.refresh();
+            return;
+          }
+
           // RULE #1: If onboarding_status === "active", user can access the app
           // This is the PRIMARY check - payment was validated by Stripe webhook
           if (profileSnapshot?.onboarding_status === "active") {
@@ -269,6 +276,13 @@ export default function LoginClient() {
         subscription_status: (profile as any)?.subscription_status ?? null,
       } : null;
       const isPaid = isPaidPlan(profileSnapshot);
+
+      // Guard: paid users with active subscription should never see Stripe again
+      if (profileSnapshot?.subscription_status === "active") {
+        router.push("/decks");
+        router.refresh();
+        return;
+      }
 
       // RULE #1: If onboarding_status === "active", user can access the app
       // This is the PRIMARY check - payment was validated by Stripe webhook
