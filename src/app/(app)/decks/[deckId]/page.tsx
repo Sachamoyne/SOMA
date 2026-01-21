@@ -231,21 +231,41 @@ export default function DeckOverviewPage() {
 
       // Force immediate refresh of deck counts
       invalidateCardCaches();
-      
-      // Refetch counts directly for immediate UI update
+
+      // Small delay to ensure DB has processed the inserts before refetching
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      // Refetch counts with retry to ensure we get updated values
       const normalizedDeckId = String(deckId);
-      try {
-        const { due, total } = await getAnkiCountsForDecks([normalizedDeckId]);
-        const counts = due[normalizedDeckId] || { new: 0, learning: 0, review: 0 };
-        setCardCounts(counts);
-        setTotalCards(total[normalizedDeckId] || 0);
-      } catch (error) {
-        console.error("[handleConfirmCards] Error refreshing counts:", error);
+      const previousNew = cardCounts.new;
+      const expectedNew = previousNew + data.imported;
+
+      for (let retry = 0; retry < 3; retry++) {
+        try {
+          invalidateCardCaches(); // Clear cache before each retry
+          const { due, total } = await getAnkiCountsForDecks([normalizedDeckId]);
+          const counts = due[normalizedDeckId] || { new: 0, learning: 0, review: 0 };
+          setCardCounts(counts);
+          setTotalCards(total[normalizedDeckId] || 0);
+
+          // If counts reflect the new cards, we're done
+          if (counts.new >= expectedNew) {
+            console.log("[handleConfirmCards] Counts updated successfully:", counts);
+            break;
+          }
+
+          // Wait and retry if counts haven't updated yet
+          if (retry < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          }
+        } catch (error) {
+          console.error("[handleConfirmCards] Error refreshing counts (retry", retry, "):", error);
+        }
       }
 
       // Trigger event for other components (e.g., deck list)
       window.dispatchEvent(new Event("soma-counts-updated"));
-      
+
       // Force Next.js App Router refresh to ensure all server components update
       router.refresh();
     } catch (error) {

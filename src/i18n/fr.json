@@ -63,7 +63,9 @@
     "continueWithGoogle": "Continuer avec Google",
     "loggingOut": "Deconnexion...",
     "logout": "Se deconnecter",
-    "errorOccurred": "Une erreur est survenue"
+    "errorOccurred": "Une erreur est survenue",
+    "acceptTermsError": "Vous devez accepter la politique de confidentialite et les CGU/CGV.",
+    "backToPlans": "Retour aux plans"
   },
   "pricing": {
     "title": "Tarifs",
@@ -308,5 +310,10 @@
     "en": "Anglais",
     "fr": "Francais",
     "toggle": "Langue"
+  },
+  "footer": {
+    "allRightsReserved": "Tous droits reserves.",
+    "privacyPolicy": "Politique de Confidentialite",
+    "termsOfService": "CGU / CGV"
   }
 }

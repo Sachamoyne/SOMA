@@ -63,7 +63,9 @@
     "continueWithGoogle": "Continue with Google",
     "loggingOut": "Signing out...",
     "logout": "Sign out",
-    "errorOccurred": "An error occurred"
+    "errorOccurred": "An error occurred",
+    "acceptTermsError": "You must accept the Privacy Policy and Terms of Service.",
+    "backToPlans": "Back to plans"
   },
   "pricing": {
     "title": "Pricing",
@@ -308,5 +310,10 @@
     "en": "English",
     "fr": "French",
     "toggle": "Language"
+  },
+  "footer": {
+    "allRightsReserved": "All rights reserved.",
+    "privacyPolicy": "Privacy Policy",
+    "termsOfService": "Terms of Service"
   }
 }

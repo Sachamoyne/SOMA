@@ -11,6 +11,7 @@ import { APP_NAME } from "@/lib/brand";
 import { BrandLogo } from "@/components/BrandLogo";
 import { useTranslation } from "@/i18n";
 import { LanguageToggle } from "@/components/LanguageToggle";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { mapAuthError } from "@/lib/auth-errors";
 
 /**
@@ -64,7 +65,7 @@ export default function SignupClient() {
 
     try {
       if (!acceptedTerms) {
-        setError("Vous devez accepter la politique de confidentialité et les CGU/CGV.");
+        setError(t("auth.acceptTermsError"));
         return;
       }
 
@@ -152,106 +153,106 @@ export default function SignupClient() {
   if (!plan) return null;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
-      <div className="relative isolate min-h-screen overflow-hidden">
-        <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-[4px]" />
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="absolute top-6 right-6 z-20 flex items-center gap-3">
+        <LanguageToggle variant="minimal" />
+        <ThemeToggle variant="minimal" />
+      </div>
 
-        <div className="absolute top-6 right-6 z-20">
-          <LanguageToggle variant="minimal" />
-        </div>
+      <div className="flex min-h-screen items-center justify-center px-6 py-16">
+        <div className="w-full max-w-md">
+          <div className="flex flex-col items-center gap-4 text-center">
+            <BrandLogo size={48} iconSize={28} />
+            <div>
+              <h1 className="text-2xl font-medium text-foreground font-serif">
+                Create your account
+              </h1>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Plan : <span className="text-foreground font-medium">{plan}</span>
+              </p>
+            </div>
+          </div>
 
-        <div className="relative z-10 flex min-h-screen items-center justify-center px-6 py-16">
-          <div className="w-full max-w-md rounded-3xl border border-white/15 bg-white/10 p-8 shadow-2xl backdrop-blur-xl">
-            <div className="flex flex-col items-center gap-4 text-center">
-              <BrandLogo size={48} iconSize={28} />
-              <div>
-                <h1 className="text-2xl font-semibold text-white font-serif">
-                  Create your account
-                </h1>
-                <p className="mt-2 text-xs text-white/60">
-                  Plan : <span className="text-white/80 font-medium">{plan}</span>
-                </p>
+          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                {t("auth.email")}
+              </label>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                disabled={loading}
+                className="h-11"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                {t("auth.password")}
+              </label>
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  disabled={loading}
+                  className="h-11 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="mt-8 space-y-5">
-              <div>
-                <label className="text-xs uppercase tracking-[0.25em] text-white/60">
-                  {t("auth.email")}
-                </label>
-                <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  disabled={loading}
-                />
+            {error && (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {error}
               </div>
+            )}
 
-              <div>
-                <label className="text-xs uppercase tracking-[0.25em] text-white/60">
-                  {t("auth.password")}
-                </label>
-                <div className="relative">
-                  <Input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={6}
-                    disabled={loading}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/60"
-                  >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
+            {success && (
+              <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+                {success}
               </div>
+            )}
 
-              {error && (
-                <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
-                  {error}
-                </div>
-              )}
+            <div className="flex items-start gap-3 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                required
+                className="mt-0.5"
+              />
+              <span>
+                J'accepte la{" "}
+                <Link href="/confidentialite" className="underline hover:text-foreground">
+                  Politique de Confidentialité
+                </Link>{" "}
+                et les{" "}
+                <Link href="/cgu-cgv" className="underline hover:text-foreground">
+                  CGU/CGV
+                </Link>{" "}
+                de {APP_NAME}.
+              </span>
+            </div>
 
-              {success && (
-                <div className="rounded-lg border border-green-500/40 bg-green-500/10 p-3 text-sm text-green-200">
-                  {success}
-                </div>
-              )}
+            <Button type="submit" disabled={loading || !acceptedTerms} className="w-full h-11">
+              {loading ? t("common.loading") : t("auth.createAccount")}
+            </Button>
 
-              <div className="flex items-start gap-3 text-xs text-white/80">
-                <input
-                  type="checkbox"
-                  checked={acceptedTerms}
-                  onChange={(e) => setAcceptedTerms(e.target.checked)}
-                  required
-                />
-                <span>
-                  J'accepte la{" "}
-                  <Link href="/confidentialite" className="underline">
-                    Politique de Confidentialité
-                  </Link>{" "}
-                  et les{" "}
-                  <Link href="/cgu-cgv" className="underline">
-                    CGU/CGV
-                  </Link>{" "}
-                  de {APP_NAME}.
-                </span>
-              </div>
-
-              <Button type="submit" disabled={loading || !acceptedTerms} className="w-full">
-                {loading ? t("common.loading") : t("auth.createAccount")}
-              </Button>
-
-              <div className="text-center text-xs text-white/60">
-                <Link href="/pricing">Retour aux plans</Link>
-              </div>
-            </form>
-          </div>
+            <div className="text-center text-sm text-muted-foreground">
+              <Link href="/pricing" className="hover:text-foreground transition-colors">{t("auth.backToPlans")}</Link>
+            </div>
+          </form>
         </div>
       </div>
     </div>
