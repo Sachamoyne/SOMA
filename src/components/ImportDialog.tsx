@@ -85,8 +85,11 @@ export function ImportDialog({
   const [usedFallback, setUsedFallback] = useState(false);
   const [isImportingAnki, setIsImportingAnki] = useState(false);
   const [ankiImportResult, setAnkiImportResult] = useState<{ imported: number; decks: number } | null>(null);
+  const [ankiProgress, setAnkiProgress] = useState<{ total: number; imported: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importIdRef = useRef<string | null>(null);
+  const ankiImportIdRef = useRef<string | null>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   // Check user plan to disable AI generation
   const userPlan = useUserPlan();
@@ -145,12 +148,56 @@ export function ImportDialog({
     return { text: data.text, confidence: data.confidence / 100 };
   };
 
+  // Poll for Anki import progress
+  const startProgressPolling = (ankiImportId: string) => {
+    const supabase = createClient();
+
+    const poll = async () => {
+      try {
+        const { data } = await supabase
+          .from("anki_imports")
+          .select("total_cards, imported_cards, status")
+          .eq("id", ankiImportId)
+          .single();
+
+        if (data) {
+          setAnkiProgress({
+            total: data.total_cards || 0,
+            imported: data.imported_cards || 0,
+          });
+
+          // Stop polling when done or error
+          if (data.status === "done" || data.status === "error") {
+            if (pollingRef.current) {
+              clearInterval(pollingRef.current);
+              pollingRef.current = null;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[ANKI IMPORT] Progress polling error:", e);
+      }
+    };
+
+    // Poll every 500ms
+    pollingRef.current = setInterval(poll, 500);
+    poll(); // Initial poll
+  };
+
+  const stopProgressPolling = () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  };
+
   const handleImportAnki = async () => {
     if (!file) return;
 
     setStep("importing-anki");
     setIsImportingAnki(true);
     setExtractionError(null);
+    setAnkiProgress(null);
 
     try {
       // Get Supabase session for auth token
@@ -166,13 +213,34 @@ export function ImportDialog({
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch(`${BACKEND_URL}/anki/import`, {
+      // Start fetch (non-blocking progress polling)
+      const fetchPromise = fetch(`${BACKEND_URL}/anki/import`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: formData,
       });
+
+      // Wait briefly then start polling (the backend creates the record quickly)
+      setTimeout(async () => {
+        // Query for the most recent pending/running import for this user
+        const { data: recentImport } = await supabase
+          .from("anki_imports")
+          .select("id")
+          .eq("filename", file.name)
+          .in("status", ["pending", "running"])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (recentImport?.id) {
+          ankiImportIdRef.current = recentImport.id;
+          startProgressPolling(recentImport.id);
+        }
+      }, 300);
+
+      const response = await fetchPromise;
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -181,7 +249,17 @@ export function ImportDialog({
       }
 
       const result = await response.json();
+
+      // If we got an ankiImportId from the response, use it for final progress
+      if (result.ankiImportId && !ankiImportIdRef.current) {
+        ankiImportIdRef.current = result.ankiImportId;
+      }
+
       setAnkiImportResult({ imported: result.imported, decks: result.decks });
+      setAnkiProgress({ total: result.imported, imported: result.imported });
+
+      // Stop polling
+      stopProgressPolling();
 
       // Wait a bit to show success message
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -193,6 +271,7 @@ export function ImportDialog({
       onOpenChange(false);
       reset();
     } catch (error) {
+      stopProgressPolling();
       setExtractionError(error instanceof Error ? error.message : "Import failed");
       setStep("file");
     } finally {
@@ -347,6 +426,7 @@ export function ImportDialog({
   };
 
   const reset = () => {
+    stopProgressPolling();
     setStep("file");
     setFile(null);
     setExtractedText("");
@@ -357,7 +437,9 @@ export function ImportDialog({
     setUsedFallback(false);
     setIsImportingAnki(false);
     setAnkiImportResult(null);
+    setAnkiProgress(null);
     importIdRef.current = null;
+    ankiImportIdRef.current = null;
   };
 
   const handleClose = (open: boolean) => {
@@ -478,8 +560,23 @@ export function ImportDialog({
             <p className="mt-4 text-sm text-muted-foreground">
               {ankiImportResult
                 ? `Successfully imported ${ankiImportResult.imported} cards from ${ankiImportResult.decks} decks`
-                : "Importing Anki deck..."}
+                : ankiProgress && ankiProgress.total > 0
+                  ? `Importing cards... ${ankiProgress.imported} / ${ankiProgress.total}`
+                  : "Importing Anki deck..."}
             </p>
+            {ankiProgress && ankiProgress.total > 0 && !ankiImportResult && (
+              <div className="mt-4 mx-auto max-w-xs">
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all duration-300"
+                    style={{ width: `${Math.min(100, (ankiProgress.imported / ankiProgress.total) * 100)}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {Math.round((ankiProgress.imported / ankiProgress.total) * 100)}%
+                </p>
+              </div>
+            )}
           </div>
         )}
 

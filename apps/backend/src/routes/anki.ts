@@ -396,6 +396,8 @@ function parseCookies(cookieHeader: string | undefined): Map<string, string> {
 router.post("/import", upload.single("file"), async (req: Request, res: Response) => {
   const importStart = Date.now();
   let tempPath: string | undefined;
+  let ankiImportId: string | undefined;
+
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No file provided" });
@@ -436,6 +438,42 @@ router.post("/import", upload.single("file"), async (req: Request, res: Response
     });
 
     console.log("[ANKI IMPORT] START");
+
+    // Create anki_imports record for progress tracking
+    const { data: ankiImportRecord, error: ankiImportError } = await supabase
+      .from("anki_imports")
+      .insert({
+        user_id: userId,
+        filename: req.file.originalname,
+        status: "pending",
+        total_cards: 0,
+        imported_cards: 0,
+      })
+      .select("id")
+      .single();
+
+    if (ankiImportError) {
+      console.warn("[ANKI IMPORT] Failed to create progress record:", ankiImportError);
+    } else {
+      ankiImportId = ankiImportRecord?.id;
+      console.log("[ANKI IMPORT] Created progress record:", ankiImportId);
+    }
+
+    // Helper to update progress (non-blocking)
+    const updateProgress = async (updates: { status?: string; total_cards?: number; imported_cards?: number; error_message?: string }) => {
+      if (!ankiImportId) return;
+      try {
+        await supabase
+          .from("anki_imports")
+          .update({ ...updates, updated_at: new Date().toISOString() })
+          .eq("id", ankiImportId);
+      } catch (e) {
+        console.warn("[ANKI IMPORT] Failed to update progress:", e);
+      }
+    };
+
+    // Mark as running
+    await updateProgress({ status: "running" });
 
     // Read file as buffer (multer already provides Buffer)
     const buffer = req.file.buffer;
@@ -636,6 +674,9 @@ router.post("/import", upload.single("file"), async (req: Request, res: Response
       }>;
       console.log("[ANKI IMPORT] Loaded cards in ms:", Date.now() - cardsQueryStart, "count:", cards.length);
 
+      // Update total_cards for progress tracking
+      await updateProgress({ total_cards: cards.length });
+
       // Build deck cache
       const deckCache = new Map<string, string>();
       const ankiDeckIdToSomaDeckId = new Map<number, string>();
@@ -798,6 +839,8 @@ router.post("/import", upload.single("file"), async (req: Request, res: Response
         } else {
           importedCount += batch.length;
         }
+        // Update progress after each batch (non-blocking)
+        updateProgress({ imported_cards: importedCount });
       }
 
       console.log(
@@ -843,10 +886,14 @@ router.post("/import", upload.single("file"), async (req: Request, res: Response
         }
       }
 
+      // Mark import as done
+      await updateProgress({ status: "done", imported_cards: importedCount });
+
       return res.json({
         success: true,
         imported: importedCount,
         decks: deckCache.size,
+        ankiImportId,
         warnings: failedInserts > 0 ? [`${failedInserts} cards failed to import`] : undefined,
       });
     } finally {
@@ -891,8 +938,24 @@ router.post("/import", upload.single("file"), async (req: Request, res: Response
       }
     }
 
+    // Mark import as error if we have an import ID
+    if (ankiImportId) {
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (supabaseUrl && serviceKey) {
+        const supabase = createSupabaseClient(supabaseUrl, serviceKey, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        });
+        await supabase
+          .from("anki_imports")
+          .update({ status: "error", error_message: errorMessage, updated_at: new Date().toISOString() })
+          .eq("id", ankiImportId);
+      }
+    }
+
     return res.status(statusCode).json({
       error: errorMessage,
+      ankiImportId,
       details: error instanceof Error ? error.stack : undefined,
     });
   }
