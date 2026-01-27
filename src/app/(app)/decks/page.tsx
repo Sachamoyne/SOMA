@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { listDecks, createDeck, getAnkiCountsForDecks } from "@/store/decks";
+import { listDecks, createDeck, getAnkiCountsForDecks, invalidateDeckCaches, invalidateCardCaches } from "@/store/decks";
 import { ImportDialog } from "@/components/ImportDialog";
 import type { Deck } from "@/lib/db";
 import { BookOpen, ChevronRight } from "lucide-react";
@@ -93,6 +93,8 @@ export default function DecksPage() {
   };
 
   const handleImportSuccess = async () => {
+    invalidateDeckCaches();
+    invalidateCardCaches();
     await loadDecks();
   };
 

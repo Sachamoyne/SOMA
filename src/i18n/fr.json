@@ -33,6 +33,7 @@
     "browse": "Parcourir",
     "statistics": "Statistiques",
     "settings": "Parametres",
+    "billing": "Abonnement",
     "pricing": "Tarifs",
     "about": "A propos",
     "login": "Connexion"
@@ -115,6 +116,16 @@
     "contactUs": "Nous contacter",
     "currentPlan": "Plan actuel",
     "popular": "Populaire"
+  },
+  "billing": {
+    "title": "Facturation",
+    "currentPlan": "Plan actuel",
+    "manageSubscription": "Gerer mon abonnement",
+    "openingPortal": "Ouverture du portail...",
+    "portalHelp": "Les changements de plan sont geres via Stripe. Les upgrades sont immediats, les downgrades prennent effet a la fin de la periode en cours.",
+    "loadError": "Impossible de charger votre plan.",
+    "authError": "Session invalide. Veuillez vous reconnecter.",
+    "portalError": "Impossible d'ouvrir le portail Stripe."
   },
   "dashboard": {
     "title": "Statistiques",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,14 +13,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Upload } from "lucide-react";
-import { createCard } from "@/store/decks";
+import { createCard, invalidateDeckCaches, invalidateCardCaches } from "@/store/decks";
 import { createClient } from "@/lib/supabase/client";
 import { CARD_TYPES, type CardType as CardTypeEnum } from "@/lib/card-types";
 import { ImportDialog } from "@/components/ImportDialog";
 
 export default function AddCardsPage() {
   const params = useParams();
-  const router = useRouter();
   const supabase = createClient();
   const deckId = params.deckId as string;
 
@@ -73,8 +72,9 @@ export default function AddCardsPage() {
   };
 
   const handleImportSuccess = () => {
+    invalidateDeckCaches();
+    invalidateCardCaches();
     setImportDialogOpen(false);
-    router.refresh();
   };
 
   return (

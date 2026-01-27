@@ -33,6 +33,7 @@
     "browse": "Browse",
     "statistics": "Statistics",
     "settings": "Settings",
+    "billing": "Billing",
     "pricing": "Pricing",
     "about": "About",
     "login": "Login"
@@ -115,6 +116,16 @@
     "contactUs": "Contact us",
     "currentPlan": "Current plan",
     "popular": "Popular"
+  },
+  "billing": {
+    "title": "Billing",
+    "currentPlan": "Current plan",
+    "manageSubscription": "Manage my subscription",
+    "openingPortal": "Opening portal...",
+    "portalHelp": "Plan changes are managed via Stripe. Upgrades are immediate, downgrades take effect at the end of the current billing period.",
+    "loadError": "Unable to load your plan.",
+    "authError": "Invalid session. Please sign in again.",
+    "portalError": "Unable to open the Stripe portal."
   },
   "dashboard": {
     "title": "Statistics",

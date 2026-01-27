@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 // @ts-ignore stripe types may be missing in local env; present in prod deps
 import Stripe from "stripe";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { requireAuth } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -185,6 +186,91 @@ router.post("/checkout", async (req: Request, res: Response) => {
     return res.json({ url: session.url });
   } catch (error) {
     console.error("[STRIPE/CHECKOUT] Error:", error);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: error instanceof Error ? error.message : "Unknown error occurred",
+    });
+  }
+});
+
+/**
+ * POST /stripe/portal
+ * Creates a Stripe Customer Portal session for the authenticated user.
+ * This route is strictly for managing existing subscriptions.
+ */
+router.post("/portal", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId as string | undefined;
+
+    if (!userId) {
+      return res.status(401).json({
+        error: "UNAUTHORIZED",
+        message: "User must be authenticated",
+      });
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL;
+    if (!frontendUrl) {
+      console.error("[STRIPE/PORTAL] Missing FRONTEND_URL");
+      return res.status(500).json({
+        error: "MISSING_CONFIGURATION",
+        message: "FRONTEND_URL environment variable is not set",
+      });
+    }
+
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceKey) {
+      console.error("[STRIPE/PORTAL] Missing Supabase configuration");
+      return res.status(500).json({
+        error: "MISSING_CONFIGURATION",
+        message: "Supabase configuration not set",
+      });
+    }
+
+    const supabase = createSupabaseClient(supabaseUrl, serviceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("stripe_customer_id")
+      .eq("id", userId)
+      .single();
+
+    const customerId = profile?.stripe_customer_id;
+
+    if (!customerId) {
+      console.warn(`[STRIPE/PORTAL] Missing stripe_customer_id for user: ${userId}`);
+      return res.status(400).json({
+        error: "NO_STRIPE_CUSTOMER",
+        message: "No Stripe customer found for this user",
+      });
+    }
+
+    const stripe = getStripe();
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: `${frontendUrl}/billing`,
+    });
+
+    if (!session.url) {
+      console.error("[STRIPE/PORTAL] Portal session created but URL is missing");
+      return res.status(500).json({
+        error: "STRIPE_ERROR",
+        message: "Failed to create portal session URL",
+      });
+    }
+
+    console.log(`[STRIPE/PORTAL] Portal session created: ${session.id} for user: ${userId}`);
+    return res.json({ url: session.url });
+  } catch (error) {
+    console.error("[STRIPE/PORTAL] Error:", error);
     return res.status(500).json({
       error: "INTERNAL_ERROR",
       message: error instanceof Error ? error.message : "Unknown error occurred",

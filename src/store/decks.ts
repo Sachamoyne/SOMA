@@ -25,6 +25,7 @@ export {
   getDeckCardCounts,
   getAllDeckCounts,
   getAnkiCountsForDecks,
+  invalidateDeckCaches,
   invalidateCardCaches,
   reviewCard,
   getCardsStudiedToday,
@@ -47,4 +48,3 @@ export {
   type SchedulerSettings,
   type Settings,
 } from "@/lib/supabase-db";
-

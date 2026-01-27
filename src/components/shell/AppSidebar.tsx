@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, BookOpen, Settings, List } from "lucide-react";
+import { LayoutDashboard, BookOpen, Settings, List, CreditCard } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useSidebar } from "@/contexts/SidebarContext";
 import { useTranslation } from "@/i18n";
@@ -22,6 +22,7 @@ export function AppSidebar() {
     // Statistics view (formerly dashboard)
     { href: "/statistics", label: t("nav.statistics"), icon: LayoutDashboard },
     { href: "/settings", label: t("nav.settings"), icon: Settings },
+    { href: "/billing", label: t("nav.billing"), icon: CreditCard },
   ];
 
   return (

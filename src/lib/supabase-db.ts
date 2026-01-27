@@ -34,7 +34,7 @@ function isCacheFresh(ts: number, ttlMs: number): boolean {
   return Date.now() - ts < ttlMs;
 }
 
-function invalidateDeckCaches(): void {
+export function invalidateDeckCaches(): void {
   decksCache = null;
   decksWithPathsCache = null;
   allDeckCountsCache = null;

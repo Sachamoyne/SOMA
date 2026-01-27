@@ -90,6 +90,7 @@ export function ImportDialog({
   const importIdRef = useRef<string | null>(null);
   const ankiImportIdRef = useRef<string | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const importCompleteRef = useRef(false);
 
   // Check user plan to disable AI generation
   const userPlan = useUserPlan();
@@ -148,6 +149,20 @@ export function ImportDialog({
     return { text: data.text, confidence: data.confidence / 100 };
   };
 
+  const completeAnkiImport = async (finalProgress?: { total?: number; imported?: number }) => {
+    if (importCompleteRef.current) return;
+    importCompleteRef.current = true;
+    stopProgressPolling();
+    if (finalProgress && (finalProgress.total !== undefined || finalProgress.imported !== undefined)) {
+      setAnkiProgress({
+        total: finalProgress.total ?? 0,
+        imported: finalProgress.imported ?? 0,
+      });
+    }
+    await onSuccess?.();
+    handleClose(false);
+  };
+
   // Poll for Anki import progress
   const startProgressPolling = (ankiImportId: string) => {
     const supabase = createClient();
@@ -156,7 +171,7 @@ export function ImportDialog({
       try {
         const { data } = await supabase
           .from("anki_imports")
-          .select("total_cards, imported_cards, status")
+          .select("total_cards, imported_cards, status, error_message")
           .eq("id", ankiImportId)
           .single();
 
@@ -171,6 +186,16 @@ export function ImportDialog({
             if (pollingRef.current) {
               clearInterval(pollingRef.current);
               pollingRef.current = null;
+            }
+            if (data.status === "done") {
+              await completeAnkiImport({
+                total: data.total_cards || 0,
+                imported: data.imported_cards || 0,
+              });
+            } else if (data.status === "error") {
+              setExtractionError(data.error_message || "Import failed");
+              setStep("file");
+              setIsImportingAnki(false);
             }
           }
         }
@@ -194,6 +219,7 @@ export function ImportDialog({
   const handleImportAnki = async () => {
     if (!file) return;
 
+    importCompleteRef.current = false;
     setStep("importing-anki");
     setIsImportingAnki(true);
     setExtractionError(null);
@@ -255,21 +281,17 @@ export function ImportDialog({
         ankiImportIdRef.current = result.ankiImportId;
       }
 
+      if (importCompleteRef.current) {
+        return;
+      }
+
       setAnkiImportResult({ imported: result.imported, decks: result.decks });
       setAnkiProgress({ total: result.imported, imported: result.imported });
 
       // Stop polling
       stopProgressPolling();
 
-      // Wait a bit to show success message
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // CRITICAL: Await the onSuccess callback to ensure the parent component
-      // has time to refresh its data before the dialog closes
-      await onSuccess?.();
-
-      onOpenChange(false);
-      reset();
+      await completeAnkiImport({ total: result.imported, imported: result.imported });
     } catch (error) {
       stopProgressPolling();
       setExtractionError(error instanceof Error ? error.message : "Import failed");
@@ -704,4 +726,3 @@ export function ImportDialog({
     </Dialog>
   );
 }
-
