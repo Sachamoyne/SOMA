@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Loader2 } from "lucide-react";
 
@@ -213,10 +213,25 @@ export function RichCardInput({
     }
   }, [insertImage]);
 
+  const isInternalChange = useRef(false);
+
   const handleInput = useCallback((e: React.FormEvent<HTMLDivElement>) => {
     const html = e.currentTarget.innerHTML;
+    isInternalChange.current = true;
     onChange(html);
   }, [onChange]);
+
+  // Sync only external value changes (e.g. form reset) into the DOM.
+  // Skip when the change originated from user typing to preserve cursor position.
+  useEffect(() => {
+    if (isInternalChange.current) {
+      isInternalChange.current = false;
+      return;
+    }
+    if (editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value || '';
+    }
+  }, [value]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -250,7 +265,6 @@ export function RichCardInput({
         `}
         data-placeholder={placeholder}
         suppressContentEditableWarning
-        dangerouslySetInnerHTML={{ __html: value || '' }}
         style={{
           wordWrap: 'break-word',
           overflowWrap: 'break-word',
