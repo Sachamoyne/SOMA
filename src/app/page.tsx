@@ -123,17 +123,15 @@ export default function LandingPage() {
             {APP_TAGLINE}. {t("landing.subheadline")}
           </p>
 
-          {!userPresent && (
-            <div className="mt-10 flex items-center justify-center">
-              <Link
-                href="/login"
-                className="group inline-flex items-center gap-2 rounded-lg bg-foreground px-6 py-3 text-sm font-medium text-white transition hover:bg-foreground/90"
-              >
-                {t("landing.getStarted")}
-                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-              </Link>
-            </div>
-          )}
+          <div className="mt-10 flex items-center justify-center">
+            <Link
+              href={userPresent ? "/decks" : "/login"}
+              className="group inline-flex items-center gap-2 rounded-lg bg-foreground px-6 py-3 text-sm font-medium text-primary-foreground transition hover:bg-foreground/90"
+            >
+              {t("landing.getStarted")}
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+            </Link>
+          </div>
 
           {/* AI Demo Animation */}
           <LandingAIDemo />
