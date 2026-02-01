@@ -6,7 +6,6 @@ import {
   getCookieConsent,
   setCookieConsent,
   loadGoogleTagManager,
-  loadGoogleAnalytics,
 } from "@/lib/cookie-consent";
 import { useTranslation } from "@/i18n";
 import Link from "next/link";
@@ -21,8 +20,8 @@ export function CookieConsent() {
     if (consent === null) {
       setVisible(true);
     } else if (consent === "accepted") {
-      // Charger Google Analytics et GTM si le consentement a été accepté
-      loadGoogleAnalytics();
+      // Charger GTM si le consentement a été accepté
+      // Google Analytics est géré par GoogleAnalyticsScript dans le layout
       loadGoogleTagManager();
     }
   }, []);
@@ -30,8 +29,8 @@ export function CookieConsent() {
   const handleAccept = () => {
     setCookieConsent("accepted");
     setVisible(false);
-    // Charger Google Analytics et GTM immédiatement après acceptation
-    loadGoogleAnalytics();
+    // Charger GTM immédiatement après acceptation
+    // Google Analytics sera chargé automatiquement via l'événement cookieConsentChanged
     loadGoogleTagManager();
   };
 

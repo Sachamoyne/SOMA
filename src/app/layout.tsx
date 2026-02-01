@@ -4,6 +4,7 @@ import "@/styles/globals.css";
 import { APP_NAME, APP_TAGLINE, APP_DESCRIPTION } from "@/lib/brand";
 import { LanguageProvider } from "@/i18n";
 import { GoogleTagManagerNoscript } from "@/components/GoogleTagManagerNoscript";
+import { GoogleAnalyticsScript } from "@/components/GoogleAnalyticsScript";
 import { Analytics } from "@vercel/analytics/next";
 
 const geist = Geist({ subsets: ["latin"] });
@@ -24,11 +25,22 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Google Tag Manager sera chargé conditionnellement via le composant CookieConsent */}
+        {/* Google tag (gtag.js) - initialisation dans le head comme recommandé par Google */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              // La configuration sera faite côté client selon le consentement
+            `,
+          }}
+        />
         <link rel="icon" href="/favicon.ico" sizes="any" />
       </head>
       <body className={geist.className}>
         <GoogleTagManagerNoscript />
+        <GoogleAnalyticsScript />
         <LanguageProvider>{children}</LanguageProvider>
         <Analytics />
       </body>
