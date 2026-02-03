@@ -278,6 +278,118 @@ router.post("/portal", requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// ============================================================================
+// AFFILIATE TRACKING HELPERS
+// ============================================================================
+
+/**
+ * Extract promotion code ID from a Checkout Session
+ * Returns the Stripe promotion_code ID if a promo was used, null otherwise
+ */
+async function extractPromotionCodeFromSession(
+  stripe: Stripe,
+  session: Stripe.Checkout.Session
+): Promise<string | null> {
+  try {
+    // Method 1: Check session.total_details.breakdown.discounts (if available)
+    const totalDetails = session.total_details as any;
+    if (totalDetails?.breakdown?.discounts?.length > 0) {
+      const discount = totalDetails.breakdown.discounts[0];
+      if (discount.discount?.promotion_code) {
+        return discount.discount.promotion_code as string;
+      }
+    }
+
+    // Method 2: Retrieve the subscription and check its discount
+    const subscriptionId = session.subscription as string | null;
+    if (subscriptionId) {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+        expand: ['discount.promotion_code'],
+      });
+
+      if (subscription.discount?.promotion_code) {
+        const promoCode = subscription.discount.promotion_code;
+        // Can be string ID or expanded object
+        if (typeof promoCode === 'string') {
+          return promoCode;
+        } else {
+          return promoCode.id;
+        }
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('[STRIPE/WEBHOOK] Error extracting promotion code:', error);
+    return null;
+  }
+}
+
+/**
+ * Record an affiliate conversion (idempotent - uses session ID as unique key)
+ * Non-blocking: errors are logged but do not fail the webhook
+ */
+async function recordAffiliateConversion(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  stripe: Stripe,
+  session: Stripe.Checkout.Session,
+  promotionCodeId: string,
+  userId: string
+): Promise<void> {
+  try {
+    // 1. Look up affiliate by stripe_promotion_code_id
+    const { data: affiliate, error: affiliateError } = await supabase
+      .from('affiliates')
+      .select('id, name, commission_percent')
+      .eq('stripe_promotion_code_id', promotionCodeId)
+      .eq('is_active', true)
+      .single();
+
+    if (affiliateError || !affiliate) {
+      // No affiliate found - might be a non-affiliate coupon, which is fine
+      console.log(`[STRIPE/WEBHOOK] No affiliate found for promo code ${promotionCodeId} - skipping attribution`);
+      return;
+    }
+
+    // 2. Calculate amounts
+    const amountTotal = session.amount_total || 0;      // Amount paid in cents (after discount)
+    const amountSubtotal = session.amount_subtotal || 0; // Original amount before discount
+    const discountAmount = Math.max(0, amountSubtotal - amountTotal);
+    const commissionCents = Math.round(amountTotal * (affiliate.commission_percent / 100));
+
+    // 3. Insert conversion (idempotent via UNIQUE constraint on stripe_checkout_session_id)
+    const { error: insertError } = await supabase
+      .from('affiliate_conversions')
+      .upsert({
+        affiliate_id: affiliate.id,
+        user_id: userId,
+        stripe_checkout_session_id: session.id,
+        stripe_subscription_id: session.subscription as string | null,
+        amount_paid_cents: amountTotal,
+        discount_cents: discountAmount,
+        commission_percent: affiliate.commission_percent,
+        commission_cents: commissionCents,
+      }, {
+        onConflict: 'stripe_checkout_session_id',
+        ignoreDuplicates: true,  // Don't error on duplicate, just skip
+      });
+
+    if (insertError) {
+      console.error('[STRIPE/WEBHOOK] Error inserting affiliate conversion:', insertError);
+      return;
+    }
+
+    console.log(`[STRIPE/WEBHOOK] ✅ Affiliate conversion recorded: affiliate=${affiliate.name}, user=${userId}, amount=${amountTotal / 100}€, commission=${commissionCents / 100}€`);
+  } catch (error) {
+    console.error('[STRIPE/WEBHOOK] Error recording affiliate conversion:', error);
+    // Don't throw - affiliate tracking failure should not fail the webhook
+  }
+}
+
+// ============================================================================
+// WEBHOOK HANDLER
+// ============================================================================
+
 /**
  * POST /stripe/webhook
  * Stripe sends checkout.session.completed here.
@@ -412,6 +524,23 @@ export async function handleStripeWebhook(req: Request, res: Response) {
     }
 
     console.log(`[STRIPE/WEBHOOK] Successfully activated user ${supabaseUserId} with plan ${finalPlan}`);
+
+    // --- AFFILIATE TRACKING (non-blocking) ---
+    try {
+      const promotionCodeId = await extractPromotionCodeFromSession(stripe, session);
+
+      if (promotionCodeId) {
+        console.log(`[STRIPE/WEBHOOK] Promotion code detected: ${promotionCodeId}`);
+        await recordAffiliateConversion(supabase, stripe, session, promotionCodeId, supabaseUserId);
+      } else {
+        console.log(`[STRIPE/WEBHOOK] No promotion code used for this checkout`);
+      }
+    } catch (affiliateError) {
+      // Log but don't fail the webhook - affiliate tracking is not critical
+      console.error('[STRIPE/WEBHOOK] Affiliate tracking error (non-fatal):', affiliateError);
+    }
+    // --- END AFFILIATE TRACKING ---
+
     return res.json({ received: true });
   } catch (error) {
     console.error("[STRIPE/WEBHOOK] Error:", error);
