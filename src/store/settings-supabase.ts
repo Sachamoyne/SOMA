@@ -1,4 +1,12 @@
 import { createClient } from "@/lib/supabase/client";
+import { invalidateCardCaches } from "@/lib/supabase-db";
+
+// Helper to dispatch counts updated event (for UI refresh)
+function dispatchCountsUpdated(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("soma-counts-updated"));
+  }
+}
 
 export type Settings = {
   id: "global";
@@ -81,6 +89,10 @@ export async function updateSettings(settings: Partial<Settings>): Promise<void>
     .upsert(toUserSettingsRow(userId, next));
 
   if (error) throw error;
+  
+  // Invalidate cache and notify UI so counts reflect new limits immediately
+  invalidateCardCaches();
+  dispatchCountsUpdated();
 }
 
 export function getLearningSteps(): number[] {

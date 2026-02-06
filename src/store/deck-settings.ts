@@ -1,6 +1,14 @@
 import { createClient } from "@/lib/supabase/client";
 import type { Settings } from "./settings";
 import { getSettings } from "./settings";
+import { invalidateCardCaches } from "@/lib/supabase-db";
+
+// Helper to dispatch counts updated event (for UI refresh)
+function dispatchCountsUpdated(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("soma-counts-updated"));
+  }
+}
 
 // Deck settings are the same structure as Settings, but all fields are nullable (null = inherit from global)
 // Fields are NOT optional (always present in the object) to prevent uncontrolled component errors
@@ -138,6 +146,11 @@ export async function updateDeckSettings(deckId: string, settings: DeckSettings)
       .single();
 
     if (error) throw error;
+    
+    // Invalidate cache and notify UI so counts reflect new limits immediately
+    invalidateCardCaches();
+    dispatchCountsUpdated();
+    
     return fromDatabaseRow(data as DeckSettingsRow);
   } else {
     // Create new settings
@@ -152,6 +165,11 @@ export async function updateDeckSettings(deckId: string, settings: DeckSettings)
       .single();
 
     if (error) throw error;
+    
+    // Invalidate cache and notify UI so counts reflect new limits immediately
+    invalidateCardCaches();
+    dispatchCountsUpdated();
+    
     return fromDatabaseRow(data as DeckSettingsRow);
   }
 }
@@ -170,4 +188,8 @@ export async function resetDeckSettings(deckId: string): Promise<void> {
     .eq("deck_id", deckId);
 
   if (error) throw error;
+  
+  // Invalidate cache and notify UI so counts reflect global limits immediately
+  invalidateCardCaches();
+  dispatchCountsUpdated();
 }
