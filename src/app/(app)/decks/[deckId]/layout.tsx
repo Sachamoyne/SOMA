@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DeckNav } from "@/components/deck/DeckNav";
 import { listDecks } from "@/store/decks";
 import type { Deck } from "@/lib/db";
+import { useIsApp } from "@/hooks/useIsApp";
+import { appHref } from "@/lib/appHref";
+import { useAppRouter } from "@/hooks/useAppRouter";
 
 export default function DeckLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
-  const router = useRouter();
+  const router = useAppRouter();
+  const isApp = useIsApp();
   const deckId = params.deckId as string;
   const [deck, setDeck] = useState<Deck | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,7 +60,7 @@ export default function DeckLayout({ children }: { children: React.ReactNode }) 
       <div className="border-b bg-background">
         <div className="max-w-6xl mx-auto px-10 py-4">
           <Link
-            href="/decks"
+            href={appHref("/decks", isApp)}
             className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useAppRouter } from "@/hooks/useAppRouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -50,7 +50,7 @@ export function StudyCard({
   deckId,
   onComplete,
 }: StudyCardProps) {
-  const router = useRouter();
+  const router = useAppRouter();
   const [queue, setQueue] = useState<CardType[]>(initialCards);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showBack, setShowBack] = useState(false);

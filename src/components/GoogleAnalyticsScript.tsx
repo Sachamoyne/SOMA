@@ -11,6 +11,8 @@ const GA4_ID = "G-T93D9CKZZT";
  */
 export function GoogleAnalyticsScript() {
   useEffect(() => {
+    // Never load analytics inside the native iOS app
+    if ((window as any).Capacitor?.isNativePlatform?.()) return;
     // Initialiser dataLayer et gtag immédiatement (comme recommandé par Google)
     // Cela permet de capturer les événements même avant le chargement du script
     window.dataLayer = window.dataLayer || [];

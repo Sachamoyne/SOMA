@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Plus, List, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useIsApp } from "@/hooks/useIsApp";
+import { appHref } from "@/lib/appHref";
+import { useAppRouter } from "@/hooks/useAppRouter";
 
 interface DeckNavProps {
   deckId: string;
@@ -12,7 +15,8 @@ interface DeckNavProps {
 
 export function DeckNav({ deckId }: DeckNavProps) {
   const pathname = usePathname();
-  const router = useRouter();
+  const router = useAppRouter();
+  const isApp = useIsApp();
 
   const navItems = useMemo(
     () => [
@@ -60,7 +64,7 @@ export function DeckNav({ deckId }: DeckNavProps) {
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={appHref(item.href, isApp)}
               className={cn(
                 "flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-colors",
                 isActive

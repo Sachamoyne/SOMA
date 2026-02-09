@@ -13,8 +13,18 @@ import Link from "next/link";
 export function CookieConsent() {
   const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
+  const [isNative, setIsNative] = useState(false);
 
   useEffect(() => {
+    // Hide cookie consent entirely inside the native iOS app
+    if (typeof window !== "undefined" && (window as any).Capacitor?.isNativePlatform?.()) {
+      setIsNative(true);
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isNative) return;
     // Vérifier si le consentement a déjà été donné
     const consent = getCookieConsent();
     if (consent === null) {
@@ -39,7 +49,7 @@ export function CookieConsent() {
     setVisible(false);
   };
 
-  if (!visible) return null;
+  if (!visible || isNative) return null;
 
   return (
     <div

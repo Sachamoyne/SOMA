@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import "@/styles/globals.css";
 import { APP_NAME, APP_TAGLINE, APP_DESCRIPTION } from "@/lib/brand";
@@ -6,8 +6,13 @@ import { LanguageProvider } from "@/i18n";
 import { GoogleTagManagerNoscript } from "@/components/GoogleTagManagerNoscript";
 import { GoogleAnalyticsScript } from "@/components/GoogleAnalyticsScript";
 import { Analytics } from "@vercel/analytics/next";
+import { OfflineBanner } from "@/components/OfflineBanner";
 
 const geist = Geist({ subsets: ["latin"] });
+
+export const viewport: Viewport = {
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   title: `${APP_NAME} - ${APP_TAGLINE}`,
@@ -31,6 +36,7 @@ export default function RootLayout({
       <body className={geist.className}>
         <GoogleTagManagerNoscript />
         <GoogleAnalyticsScript />
+        <OfflineBanner />
         <LanguageProvider>{children}</LanguageProvider>
         <Analytics />
       </body>

@@ -3,7 +3,7 @@
     "appName": "Soma",
     "webDir": "public",
     "server": {
-      "url": "https://soma-edu.com",
+      "url": "https://soma-edu.com/decks?app=1",
       "allowNavigation": [
         "soma-edu.com",
         "*.soma-edu.com"

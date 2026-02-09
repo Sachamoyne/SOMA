@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Upload, Menu } from "lucide-react";
 import { useSidebar } from "@/contexts/SidebarContext";
 import { useTranslation } from "@/i18n";
+import { useIsNative } from "@/hooks/useIsNative";
 
 interface TopbarProps {
   title: string;
@@ -24,19 +25,25 @@ export function Topbar({
 }: TopbarProps) {
   const { t } = useTranslation();
   const { toggle } = useSidebar();
+  const isNative = useIsNative();
 
   return (
-    <div className="flex flex-col gap-3 border-b border-border bg-background px-4 py-3 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] md:h-20 md:flex-row md:items-center md:justify-between md:px-10 md:py-0 md:pt-0">
+    <div
+      className="flex flex-col gap-3 border-b border-border bg-background px-4 pb-3 pt-[calc(var(--sat)+0.75rem)] min-h-[calc(var(--sat)+3.5rem)] md:min-h-0 md:h-20 md:flex-row md:items-center md:justify-between md:px-10 md:py-0"
+      style={{ "--sat": "env(safe-area-inset-top, 0px)" } as React.CSSProperties}
+    >
       <div className="flex items-center gap-4">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggle}
-          className="shrink-0 text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
-          aria-label="Toggle sidebar"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
+        {!isNative && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggle}
+            className="shrink-0 text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
+            aria-label="Toggle sidebar"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+        )}
         <h2 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h2>
       </div>
 

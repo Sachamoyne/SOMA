@@ -1,8 +1,10 @@
 "use client";
 
 import { AppSidebar } from "@/components/shell/AppSidebar";
+import { MobileBottomNav } from "@/components/shell/MobileBottomNav";
 import { SidebarProvider, useSidebar } from "@/contexts/SidebarContext";
 import { usePathname } from "next/navigation";
+import { useIsNative } from "@/hooks/useIsNative";
 
 export default function AppShellClient({
   children,
@@ -10,8 +12,10 @@ export default function AppShellClient({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const isNative = useIsNative();
   const isStudyPage = pathname?.startsWith("/study");
 
+  // Study pages: full-screen, no chrome at all
   if (isStudyPage) {
     return (
       <div className="app-shell flex h-screen w-screen overflow-hidden bg-background text-foreground">
@@ -20,6 +24,16 @@ export default function AppShellClient({
     );
   }
 
+  // Native app (Capacitor): bottom tab bar instead of sidebar
+  if (isNative) {
+    return (
+      <SidebarProvider>
+        <NativeAppLayout>{children}</NativeAppLayout>
+      </SidebarProvider>
+    );
+  }
+
+  // Web: sidebar (unchanged)
   return (
     <SidebarProvider>
       <AppShellLayout>{children}</AppShellLayout>
@@ -27,6 +41,22 @@ export default function AppShellClient({
   );
 }
 
+/** Native layout: no sidebar, bottom tab bar, content padded above the bar. */
+function NativeAppLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="app-shell flex h-screen w-screen max-w-full flex-col overflow-hidden bg-background text-foreground">
+      <div
+        className="flex flex-1 flex-col overflow-hidden min-w-0"
+        style={{ paddingBottom: "calc(3.5rem + env(safe-area-inset-bottom, 0px))" }}
+      >
+        {children}
+      </div>
+      <MobileBottomNav />
+    </div>
+  );
+}
+
+/** Web layout: sidebar + overlay (unchanged). */
 function AppShellLayout({ children }: { children: React.ReactNode }) {
   const { isOpen, close } = useSidebar();
 
