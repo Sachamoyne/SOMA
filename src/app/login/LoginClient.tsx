@@ -16,6 +16,7 @@ import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { mapAuthError } from "@/lib/auth-errors";
 import { consumePostLoginRedirect } from "@/lib/deepLinks";
+import { isNativeApp } from "@/lib/native";
 
 const playfair = Playfair_Display({ subsets: ["latin"] });
 
@@ -37,6 +38,7 @@ export default function LoginClient() {
 
   // Check for checkout=success in URL (user just paid)
   const checkoutSuccess = searchParams.get("checkout") === "success";
+  const showAppleSignIn = isNativeApp();
 
   useEffect(() => {
     // If a valid session already exists, redirect away from /login
@@ -151,6 +153,32 @@ export default function LoginClient() {
       console.error("[LoginPage] Unexpected error during Google sign in:", err);
       const authError = mapAuthError(err, "signin");
       setError(authError.message || t("auth.googleSignInError"));
+      setLoading(false);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "apple",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (oauthError) {
+        const authError = mapAuthError(oauthError, "signin");
+        setError(authError.message);
+        setLoading(false);
+        return;
+      }
+    } catch (err) {
+      const authError = mapAuthError(err, "signin");
+      setError(authError.message || t("auth.unexpectedError"));
       setLoading(false);
     }
   };
@@ -405,6 +433,18 @@ export default function LoginClient() {
               </svg>
               {t("auth.continueWithGoogle")}
             </Button>
+
+            {showAppleSignIn && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleAppleSignIn}
+                className="w-full h-11"
+                disabled={loading}
+              >
+                Continue with Apple
+              </Button>
+            )}
 
             <div className="text-center text-sm text-muted-foreground">
               {t("auth.newToSoma")}{" "}

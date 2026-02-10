@@ -40,6 +40,7 @@ export default function DecksPage() {
     Record<string, { new: number; learning: number; review: number }>
   >({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [deckName, setDeckName] = useState("");
@@ -51,6 +52,7 @@ export default function DecksPage() {
   const [vocabDirection, setVocabDirection] = useState<VocabDirection>("normal");
 
   const loadDecks = async () => {
+    setLoadError(null);
     try {
       const loadedDecks = await listDecks();
       setDecks(loadedDecks);
@@ -75,7 +77,10 @@ export default function DecksPage() {
       setCardCounts(nextTotals);
       setLearningCounts(nextDue);
     } catch (error) {
-      console.error("Error loading decks:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[DecksPage] load failed:", error);
+      }
+      setLoadError("Network error. Please check your connection and retry.");
     } finally {
       setLoading(false);
     }
@@ -154,6 +159,12 @@ export default function DecksPage() {
           {loading ? (
             <div className="rounded-xl border border-border bg-background px-8 py-14 text-center shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
               <p className="text-muted-foreground">{t("decks.loadingDecks")}</p>
+            </div>
+          ) : loadError ? (
+            <div className="rounded-xl border border-border bg-background px-8 py-14 text-center shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+              <h3 className="text-lg font-semibold text-foreground mb-2">Network error</h3>
+              <p className="text-muted-foreground mb-6">{loadError}</p>
+              <Button onClick={loadDecks}>Retry</Button>
             </div>
           ) : rootDecks.length === 0 ? (
             <div className="rounded-xl border border-border bg-background px-8 py-14 text-center shadow-[0_1px_3px_rgba(0,0,0,0.04)]">

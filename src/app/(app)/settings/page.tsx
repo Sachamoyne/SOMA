@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useAppRouter } from "@/hooks/useAppRouter";
 import { Topbar } from "@/components/shell/Topbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -177,6 +178,12 @@ export default function SettingsPage() {
             <Button onClick={handleSave} disabled={saving}>
               {saving ? t("settings.saving") : t("common.save")}
             </Button>
+          </div>
+
+          <div className="text-xs text-muted-foreground">
+            <Link href="/privacy" className="underline hover:text-foreground">
+              Privacy Policy
+            </Link>
           </div>
         </div>
       </div>

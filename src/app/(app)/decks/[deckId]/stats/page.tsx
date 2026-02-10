@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   getReviewStatsBetween,
   useReviewsByDay,
@@ -56,6 +57,7 @@ export default function DeckStatsPage() {
     mature: number;
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const reviewsByDay = useReviewsByDay(30, deckId);
   const heatmapData = useHeatmapData(90, deckId);
@@ -65,6 +67,10 @@ export default function DeckStatsPage() {
     let mounted = true;
 
     async function loadStats() {
+      if (mounted) {
+        setLoadError(null);
+        setLoading(true);
+      }
       try {
         const now = new Date();
         const todayStart = new Date();
@@ -89,7 +95,24 @@ export default function DeckStatsPage() {
 
         setCardCounts({ total, new: newCount, learning: learningCount, mature: matureCount });
       } catch (error) {
-        console.error("Error loading deck stats:", error);
+        if (process.env.NODE_ENV !== "production") {
+          console.log("[DeckStatsPage] load failed:", error);
+        }
+        if (mounted) {
+          setLoadError("Network error. Please check your connection and retry.");
+          setTodayStats({
+            totalReviews: 0,
+            totalMinutes: 0,
+            retentionRate: 0,
+            ratings: {
+              again: 0,
+              hard: 0,
+              good: 0,
+              easy: 0,
+            },
+          });
+          setCardCounts({ total: 0, new: 0, learning: 0, mature: 0 });
+        }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -100,6 +123,40 @@ export default function DeckStatsPage() {
       mounted = false;
     };
   }, [deckId]);
+
+  const handleRetry = async () => {
+    setLoadError(null);
+    setLoading(true);
+    try {
+      const now = new Date();
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const [today, cards] = await Promise.all([
+        getReviewStatsBetween(todayStart.toISOString(), now.toISOString(), deckId),
+        listCardsForDeckTree(deckId),
+      ]);
+
+      setTodayStats(today);
+
+      const activeCards = cards.filter((card) => !card.suspended);
+      const total = activeCards.length;
+      const newCount = activeCards.filter((c) => c.state === "new").length;
+      const learningCount = activeCards.filter(
+        (c) => c.state === "learning" || c.state === "relearning"
+      ).length;
+      const matureCount = activeCards.filter((c) => c.state === "review").length;
+
+      setCardCounts({ total, new: newCount, learning: learningCount, mature: matureCount });
+    } catch (error) {
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[DeckStatsPage] retry failed:", error);
+      }
+      setLoadError("Network error. Please check your connection and retry.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const formatChartDate = (dateStr: string): string => {
     const date = new Date(dateStr);
@@ -139,6 +196,18 @@ export default function DeckStatsPage() {
         <h2 className="text-2xl font-semibold">{t("deckStats.title")}</h2>
         <p className="text-sm text-muted-foreground mt-1">{t("deckStats.subtitle")}</p>
       </div>
+
+      {loadError && (
+        <Card>
+          <CardContent className="py-8">
+            <div className="flex flex-col items-center justify-center text-center">
+              <h3 className="text-lg font-medium mb-2">Network error</h3>
+              <p className="text-sm text-muted-foreground mb-4">{loadError}</p>
+              <Button onClick={handleRetry}>Retry</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* KPI Cards */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">

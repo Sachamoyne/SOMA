@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { AppSidebar } from "@/components/shell/AppSidebar";
 import { MobileBottomNav } from "@/components/shell/MobileBottomNav";
 import { SidebarProvider, useSidebar } from "@/contexts/SidebarContext";
@@ -7,6 +8,8 @@ import { usePathname } from "next/navigation";
 import { useIsNative } from "@/hooks/useIsNative";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useDeepLinks } from "@/hooks/useDeepLinks";
+import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { OfflineFallback } from "@/components/OfflineFallback";
 
 export default function AppShellClient({
   children,
@@ -15,7 +18,25 @@ export default function AppShellClient({
 }) {
   const pathname = usePathname();
   const isNative = useIsNative();
+  const { online } = useNetworkStatus();
+  const wasOfflineRef = useRef(false);
   const isStudyPage = pathname?.startsWith("/study");
+
+  useEffect(() => {
+    if (!online) {
+      wasOfflineRef.current = true;
+      return;
+    }
+
+    if (wasOfflineRef.current) {
+      wasOfflineRef.current = false;
+      window.location.reload();
+    }
+  }, [online]);
+
+  if (!online) {
+    return <OfflineFallback onRetry={() => window.location.reload()} />;
+  }
 
   // Study pages: full-screen, no chrome at all
   if (isStudyPage) {
