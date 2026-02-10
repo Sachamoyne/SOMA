@@ -6,6 +6,7 @@ import { SidebarProvider, useSidebar } from "@/contexts/SidebarContext";
 import { usePathname } from "next/navigation";
 import { useIsNative } from "@/hooks/useIsNative";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { useDeepLinks } from "@/hooks/useDeepLinks";
 
 export default function AppShellClient({
   children,
@@ -46,6 +47,8 @@ export default function AppShellClient({
 function NativeAppLayout({ children }: { children: React.ReactNode }) {
   // Register for iOS push notifications (no-op if permission denied or on web)
   usePushNotifications();
+  // Handle Capacitor deep links (appUrlOpen + cold start launch URL)
+  useDeepLinks();
 
   return (
     <div className="app-shell flex h-screen w-screen max-w-full flex-col overflow-hidden bg-background text-foreground">

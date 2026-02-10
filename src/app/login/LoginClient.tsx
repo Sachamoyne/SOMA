@@ -15,6 +15,7 @@ import { useTranslation } from "@/i18n";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { mapAuthError } from "@/lib/auth-errors";
+import { consumePostLoginRedirect } from "@/lib/deepLinks";
 
 const playfair = Playfair_Display({ subsets: ["latin"] });
 
@@ -83,8 +84,9 @@ export default function LoginClient() {
               setError(t("auth.confirmEmailFirstWithSpam"));
               return;
             }
+            const redirectPath = consumePostLoginRedirect() ?? "/decks";
             router.refresh();
-            router.replace("/decks");
+            router.replace(redirectPath);
             return;
           }
 
@@ -103,8 +105,9 @@ export default function LoginClient() {
           }
 
           // Free user with confirmed email → access to /decks
+          const redirectPath = consumePostLoginRedirect() ?? "/decks";
           router.refresh();
-          router.replace("/decks");
+          router.replace(redirectPath);
         }
       } catch (error) {
         // Catch all errors - don't let them bubble up as "loader failed"
@@ -242,8 +245,9 @@ export default function LoginClient() {
           setError(t("auth.confirmEmailFirstWithSpam"));
           return;
         }
+        const redirectPath = consumePostLoginRedirect() ?? "/decks";
         router.refresh();
-        router.push("/decks");
+        router.push(redirectPath);
         return;
       }
 
@@ -262,8 +266,9 @@ export default function LoginClient() {
       }
 
       // Free user with confirmed email → access to /decks
+      const redirectPath = consumePostLoginRedirect() ?? "/decks";
       router.refresh();
-      router.push("/decks");
+      router.push(redirectPath);
     } catch (err) {
       // Catch all unexpected errors
       console.error("[LoginPage] Unexpected error during login:", err);
