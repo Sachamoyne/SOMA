@@ -308,6 +308,32 @@ export interface Database {
           updated_at?: string
         }
       }
+      push_devices: {
+        Row: {
+          id: string
+          user_id: string
+          device_token: string
+          platform: "ios" | "android"
+          created_at: string
+          last_used_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          device_token: string
+          platform?: "ios" | "android"
+          created_at?: string
+          last_used_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          device_token?: string
+          platform?: "ios" | "android"
+          created_at?: string
+          last_used_at?: string
+        }
+      }
       profiles: {
         Row: {
           user_id: string

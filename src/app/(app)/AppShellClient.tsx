@@ -5,6 +5,7 @@ import { MobileBottomNav } from "@/components/shell/MobileBottomNav";
 import { SidebarProvider, useSidebar } from "@/contexts/SidebarContext";
 import { usePathname } from "next/navigation";
 import { useIsNative } from "@/hooks/useIsNative";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 export default function AppShellClient({
   children,
@@ -43,6 +44,9 @@ export default function AppShellClient({
 
 /** Native layout: no sidebar, bottom tab bar, content padded above the bar. */
 function NativeAppLayout({ children }: { children: React.ReactNode }) {
+  // Register for iOS push notifications (no-op if permission denied or on web)
+  usePushNotifications();
+
   return (
     <div className="app-shell flex h-screen w-screen max-w-full flex-col overflow-hidden bg-background text-foreground">
       <div

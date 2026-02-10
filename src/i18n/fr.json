@@ -476,6 +476,23 @@
     "privacyPolicy": "Politique de Confidentialite",
     "termsOfService": "CGU / CGV"
   },
+  "deckStats": {
+    "title": "Statistiques du paquet",
+    "subtitle": "Analysez votre progression pour ce paquet.",
+    "totalCards": "Total de cartes",
+    "newCards": "Nouvelles",
+    "learningCards": "En apprentissage",
+    "matureCards": "Matures",
+    "retentionRate": "Taux de retention",
+    "timeStudied": "Temps etudie",
+    "reviewsToday": "Revisions aujourd'hui",
+    "reviewsPerDay": "Revisions par jour (30 jours)",
+    "activity": "Activite (90 derniers jours)",
+    "cardDistribution": "Repartition des cartes",
+    "noData": "Pas assez de donnees",
+    "noDataHint": "Commencez a reviser des cartes pour voir les statistiques.",
+    "noCards": "Aucune carte dans ce paquet"
+  },
   "cookieConsent": {
     "title": "Gestion des cookies",
     "description": "Nous utilisons des cookies pour ameliorer votre experience et analyser l'utilisation de notre site.",

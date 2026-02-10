@@ -476,6 +476,23 @@
     "privacyPolicy": "Privacy Policy",
     "termsOfService": "Terms of Service"
   },
+  "deckStats": {
+    "title": "Deck Statistics",
+    "subtitle": "Analyze your learning progress for this deck.",
+    "totalCards": "Total cards",
+    "newCards": "New",
+    "learningCards": "Learning",
+    "matureCards": "Mature",
+    "retentionRate": "Retention rate",
+    "timeStudied": "Time studied",
+    "reviewsToday": "Reviews today",
+    "reviewsPerDay": "Reviews per day (30 days)",
+    "activity": "Activity (last 90 days)",
+    "cardDistribution": "Card distribution",
+    "noData": "Not enough data yet",
+    "noDataHint": "Start reviewing cards to see statistics.",
+    "noCards": "No cards in this deck"
+  },
   "cookieConsent": {
     "title": "Cookie Management",
     "description": "We use cookies to improve your experience and analyze site usage.",

@@ -53,20 +53,28 @@ async function getCurrentUserId(): Promise<string> {
 
 /**
  * Get reviews grouped by day for the last N days
+ * If deckId is provided, includes that deck and all sub-decks
  */
-export async function getReviewsByDay(days: number): Promise<ReviewByDay[]> {
+export async function getReviewsByDay(days: number, deckId?: string): Promise<ReviewByDay[]> {
   const supabase = createClient();
   const userId = await getCurrentUserId();
 
   const now = new Date();
   const startTime = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
-  const { data: reviews, error } = await supabase
+  let query = supabase
     .from("reviews")
     .select("reviewed_at")
     .eq("user_id", userId)
     .gte("reviewed_at", startTime.toISOString())
     .lte("reviewed_at", now.toISOString());
+
+  if (deckId) {
+    const deckIds = await getDeckAndAllChildren(deckId);
+    query = query.in("deck_id", deckIds);
+  }
+
+  const { data: reviews, error } = await query;
 
   if (error) {
     console.error("Error fetching reviews:", error);
@@ -98,20 +106,28 @@ export async function getReviewsByDay(days: number): Promise<ReviewByDay[]> {
 /**
  * Get heatmap data for the last N days (GitHub-style)
  * Returns array of cells with date, count, and dayOfWeek
+ * If deckId is provided, includes that deck and all sub-decks
  */
-export async function getHeatmapData(days: number): Promise<HeatmapCell[]> {
+export async function getHeatmapData(days: number, deckId?: string): Promise<HeatmapCell[]> {
   const supabase = createClient();
   const userId = await getCurrentUserId();
 
   const now = new Date();
   const startTime = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
-  const { data: reviews, error } = await supabase
+  let query = supabase
     .from("reviews")
     .select("reviewed_at")
     .eq("user_id", userId)
     .gte("reviewed_at", startTime.toISOString())
     .lte("reviewed_at", now.toISOString());
+
+  if (deckId) {
+    const deckIds = await getDeckAndAllChildren(deckId);
+    query = query.in("deck_id", deckIds);
+  }
+
+  const { data: reviews, error } = await query;
 
   if (error) {
     console.error("Error fetching reviews for heatmap:", error);
@@ -272,17 +288,25 @@ export async function getCardDistribution(
 
 export async function getReviewStatsBetween(
   startIso: string,
-  endIso: string
+  endIso: string,
+  deckId?: string
 ): Promise<ReviewStats> {
   const supabase = createClient();
   const userId = await getCurrentUserId();
 
-  const { data: reviews, error } = await supabase
+  let query = supabase
     .from("reviews")
     .select("rating, elapsed_ms, reviewed_at")
     .eq("user_id", userId)
     .gte("reviewed_at", startIso)
     .lte("reviewed_at", endIso);
+
+  if (deckId) {
+    const deckIds = await getDeckAndAllChildren(deckId);
+    query = query.in("deck_id", deckIds);
+  }
+
+  const { data: reviews, error } = await query;
 
   if (error) {
     console.error("Error fetching review stats:", error);
@@ -321,8 +345,9 @@ export async function getReviewStatsBetween(
 
 /**
  * Hook for reviews by day
+ * If deckId is provided, scopes to that deck and all sub-decks
  */
-export function useReviewsByDay(days: number) {
+export function useReviewsByDay(days: number, deckId?: string) {
   const [data, setData] = useState<ReviewByDay[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -331,7 +356,7 @@ export function useReviewsByDay(days: number) {
 
     async function load() {
       try {
-        const result = await getReviewsByDay(days);
+        const result = await getReviewsByDay(days, deckId);
         if (mounted) {
           setData(result);
           setLoading(false);
@@ -349,15 +374,16 @@ export function useReviewsByDay(days: number) {
     return () => {
       mounted = false;
     };
-  }, [days]);
+  }, [days, deckId]);
 
   return loading ? undefined : data;
 }
 
 /**
  * Hook for heatmap data
+ * If deckId is provided, scopes to that deck and all sub-decks
  */
-export function useHeatmapData(days: number) {
+export function useHeatmapData(days: number, deckId?: string) {
   const [data, setData] = useState<HeatmapCell[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -366,7 +392,7 @@ export function useHeatmapData(days: number) {
 
     async function load() {
       try {
-        const result = await getHeatmapData(days);
+        const result = await getHeatmapData(days, deckId);
         if (mounted) {
           setData(result);
           setLoading(false);
@@ -384,7 +410,7 @@ export function useHeatmapData(days: number) {
     return () => {
       mounted = false;
     };
-  }, [days]);
+  }, [days, deckId]);
 
   return loading ? undefined : data;
 }
