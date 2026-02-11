@@ -76,8 +76,19 @@ export default function SettingsPage() {
     }
   };
 
-  const handleOpenWebsite = () => {
-    window.open("https://soma-edu.com", "_blank");
+  const handleOpenWebsite = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const targetPath = user ? "/billing" : "/pricing";
+      const url = `https://soma-edu.com${targetPath}?source=ios_app&from_native=1`;
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      console.error("Error resolving upgrade destination:", error);
+      window.open("https://soma-edu.com/pricing?source=ios_app&from_native=1", "_blank", "noopener,noreferrer");
+    }
   };
 
   if (loading) {
@@ -178,7 +189,7 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  To subscribe or manage your plan, visit soma-edu.com from your browser.
+                  Manage or upgrade your subscription on the web version.
                 </p>
                 <Button type="button" variant="outline" onClick={handleOpenWebsite}>
                   Open website
