@@ -53,6 +53,8 @@ export const DEEP_LINK_SMOKE_TEST_URLS = [
   "soma://review",
   "soma://decks/123",
   "soma://decks/123/stats",
+  "soma://auth/callback?code=abc&next=%2Fdecks",
+  "soma://auth-callback?code=abc&next=%2Fdecks",
   "https://soma-edu.com/review",
   "https://soma-edu.com/decks/123?ref=abc",
   "https://soma-edu.com/decks/123/stats?app=1",
@@ -94,6 +96,14 @@ function resolveCustomSchemePath(parsed: URL): string | null {
     return resolveDeckPathFromSegments(getPathSegments(parsed.pathname));
   }
 
+  if (parsed.hostname === "auth-callback") {
+    return "/auth/callback";
+  }
+
+  if (parsed.hostname === "auth" && parsed.pathname === "/callback") {
+    return "/auth/callback";
+  }
+
   if (!parsed.hostname) {
     return resolvePathname(parsed.pathname);
   }
@@ -103,6 +113,9 @@ function resolveCustomSchemePath(parsed: URL): string | null {
 
 function resolvePathname(pathname: string): string | null {
   const segments = getPathSegments(pathname);
+  if (segments.length === 2 && segments[0] === "auth" && segments[1] === "callback") {
+    return "/auth/callback";
+  }
   if (segments.length === 1 && segments[0] === "review") {
     return "/review";
   }

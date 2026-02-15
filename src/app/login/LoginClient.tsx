@@ -1,10 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAppRouter } from "@/hooks/useAppRouter";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { Browser } from "@capacitor/browser";
+import {
+  Capacitor,
+  registerPlugin,
+  type PluginListenerHandle,
+} from "@capacitor/core";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Eye, EyeOff, CheckCircle } from "lucide-react";
@@ -24,6 +30,19 @@ type ProfileSnapshot = {
   subscription_status: string | null;
 };
 
+type AppUrlOpen = { url: string };
+type AppLaunchUrl = { url?: string };
+type AppPlugin = {
+  addListener(
+    eventName: "appUrlOpen",
+    listenerFunc: (event: AppUrlOpen) => void,
+  ): Promise<PluginListenerHandle>;
+  getLaunchUrl(): Promise<AppLaunchUrl>;
+};
+
+const App = registerPlugin<AppPlugin>("App");
+const IOS_OAUTH_REDIRECT_URL = "soma://auth/callback?next=/decks";
+
 export default function LoginClient() {
   const { t } = useTranslation();
   const [email, setEmail] = useState("");
@@ -35,11 +54,58 @@ export default function LoginClient() {
   const router = useAppRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
+  const oauthListenerRef = useRef<PluginListenerHandle | null>(null);
 
   // Check for checkout=success in URL (user just paid)
   const checkoutSuccess = searchParams.get("checkout") === "success";
   const showAppleSignIn = isNativeApp();
   const nativeIOS = isNativeIOS();
+
+  useEffect(() => {
+    if (!nativeIOS) return;
+    if (!Capacitor.isPluginAvailable("App")) return;
+
+    const handleOAuthCallbackUrl = (incomingUrl: string) => {
+      try {
+        const parsed = new URL(incomingUrl);
+        const isOAuthCallback =
+          parsed.protocol === "soma:" &&
+          ((parsed.hostname === "auth" && parsed.pathname === "/callback") ||
+            parsed.hostname === "auth-callback");
+
+        if (!isOAuthCallback) return;
+
+        void Browser.close();
+        window.location.assign(`${window.location.origin}/auth/callback${parsed.search}`);
+      } catch {
+        // Ignore malformed URLs.
+      }
+    };
+
+    const setup = async () => {
+      try {
+        const listener = await App.addListener("appUrlOpen", (event) => {
+          handleOAuthCallbackUrl(event.url);
+        });
+        oauthListenerRef.current = listener;
+
+        const launch = await App.getLaunchUrl();
+        if (launch?.url) {
+          handleOAuthCallbackUrl(launch.url);
+        }
+      } catch (error) {
+        console.error("[LoginPage] Failed to register appUrlOpen listener:", error);
+      }
+    };
+
+    void setup();
+
+    return () => {
+      const listener = oauthListenerRef.current;
+      oauthListenerRef.current = null;
+      void listener?.remove();
+    };
+  }, [nativeIOS]);
 
   useEffect(() => {
     // If a valid session already exists, redirect away from /login
@@ -134,10 +200,15 @@ export default function LoginClient() {
     try {
       console.log("[LoginPage] Starting Google OAuth sign in...");
 
+      const redirectTo = nativeIOS
+        ? IOS_OAUTH_REDIRECT_URL
+        : `${window.location.origin}/auth/callback?next=/decks`;
+
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo,
+          skipBrowserRedirect: nativeIOS,
         },
       });
 
@@ -145,6 +216,18 @@ export default function LoginClient() {
         console.error("[LoginPage] Google OAuth error:", oauthError);
         const authError = mapAuthError(oauthError, "signin");
         setError(authError.message);
+        setLoading(false);
+        return;
+      }
+
+      if (nativeIOS && data?.url) {
+        await Browser.open({ url: data.url });
+        setLoading(false);
+        return;
+      }
+
+      if (nativeIOS && !data?.url) {
+        setError(t("auth.googleSignInError"));
         setLoading(false);
         return;
       }
@@ -164,16 +247,33 @@ export default function LoginClient() {
     setSuccess(null);
 
     try {
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      const redirectTo = nativeIOS
+        ? IOS_OAUTH_REDIRECT_URL
+        : `${window.location.origin}/auth/callback?next=/decks`;
+
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "apple",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo,
+          skipBrowserRedirect: nativeIOS,
         },
       });
 
       if (oauthError) {
         const authError = mapAuthError(oauthError, "signin");
         setError(authError.message);
+        setLoading(false);
+        return;
+      }
+
+      if (nativeIOS && data?.url) {
+        await Browser.open({ url: data.url });
+        setLoading(false);
+        return;
+      }
+
+      if (nativeIOS && !data?.url) {
+        setError(t("auth.unexpectedError"));
         setLoading(false);
         return;
       }
